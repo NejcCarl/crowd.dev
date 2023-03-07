@@ -268,7 +268,7 @@ class TenantRepository {
       transaction,
     })
 
-    await tenantCache.setValue(tenantId, JSON.stringify(record))
+    await tenantCache.setValue(tenantId, JSON.stringify(record), 7200)
 
     return record
   }
