@@ -572,7 +572,7 @@ export default class UserRepository {
       record = this._mapUserForTenant(record, currentTenant)
     }
 
-    await userCache.setValue(userId, JSON.stringify(record))
+    await userCache.setValue(userId, JSON.stringify(record), 7200)
 
     return record
   }
