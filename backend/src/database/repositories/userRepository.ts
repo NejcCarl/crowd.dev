@@ -8,6 +8,8 @@ import Error404 from '../../errors/Error404'
 import { isUserInTenant } from '../utils/userTenantUtils'
 import { IRepositoryOptions } from './IRepositoryOptions'
 import SequelizeArrayUtils from '../utils/sequelizeArrayUtils'
+import { createRedisClient } from '../../utils/redis'
+import { RedisCache } from '../../utils/redis/redisCache'
 
 const { Op } = Sequelize
 
@@ -129,6 +131,8 @@ export default class UserRepository {
   }
 
   static async updateProfile(id, data, options: IRepositoryOptions) {
+    UserRepository._bustCacheForUser(id)
+
     const currentUser = SequelizeRepository.getCurrentUser(options)
 
     const transaction = SequelizeRepository.getTransaction(options)
@@ -285,6 +289,8 @@ export default class UserRepository {
   }
 
   static async update(id, data, options: IRepositoryOptions) {
+    UserRepository._bustCacheForUser(id)
+
     const currentUser = SequelizeRepository.getCurrentUser(options)
 
     const transaction = SequelizeRepository.getTransaction(options)
@@ -535,6 +541,15 @@ export default class UserRepository {
   }
 
   static async findById(id, options: IRepositoryOptions) {
+    const redis = await createRedisClient(true)
+    const userId = `user:${id}`
+
+    const userCache = new RedisCache(userId, redis)
+    const cachedUser = JSON.parse(await userCache.getValue(userId))
+    if (cachedUser) {
+      return cachedUser
+    }
+
     const transaction = SequelizeRepository.getTransaction(options)
 
     let record = await options.database.user.findByPk(id, {
@@ -556,6 +571,8 @@ export default class UserRepository {
 
       record = this._mapUserForTenant(record, currentTenant)
     }
+
+    await userCache.setValue(userId, JSON.stringify(record))
 
     return record
   }
@@ -763,6 +780,14 @@ export default class UserRepository {
     })
 
     return records.map((record) => record.id)
+  }
+
+  static async _bustCacheForUser(id): Promise<void> {
+    const redis = await createRedisClient(true)
+    const userId = `user:${id}`
+
+    const userCache = new RedisCache(userId, redis)
+    await userCache.delete(userId)
   }
 
   static async _populateRelationsForRows(rows, options: IRepositoryOptions) {

@@ -9,6 +9,8 @@ import Error400 from '../../errors/Error400'
 import { isUserInTenant } from '../utils/userTenantUtils'
 import { IRepositoryOptions } from './IRepositoryOptions'
 import getCleanString from '../../utils/getCleanString'
+import { createRedisClient } from '../../utils/redis'
+import { RedisCache } from '../../utils/redis/redisCache'
 
 const { Op } = Sequelize
 
@@ -108,6 +110,7 @@ class TenantRepository {
   }
 
   static async update(id, data, options: IRepositoryOptions) {
+    TenantRepository._bustCacheForTenant(id)
     const currentUser = SequelizeRepository.getCurrentUser(options)
 
     const transaction = SequelizeRepository.getTransaction(options)
@@ -165,6 +168,7 @@ class TenantRepository {
   }
 
   static async updatePlanUser(id, planStripeCustomerId, planUserId, options: IRepositoryOptions) {
+    TenantRepository._bustCacheForTenant(id)
     const currentUser = SequelizeRepository.getCurrentUser(options)
 
     const transaction = SequelizeRepository.getTransaction(options)
@@ -194,6 +198,7 @@ class TenantRepository {
     planStatus,
     options: IRepositoryOptions,
   ) {
+    TenantRepository._bustCacheForTenant(planStripeCustomerId)
     const transaction = SequelizeRepository.getTransaction(options)
 
     let record = await options.database.tenant.findOne({
@@ -219,6 +224,7 @@ class TenantRepository {
   }
 
   static async destroy(id, options: IRepositoryOptions) {
+    TenantRepository._bustCacheForTenant(id)
     const transaction = SequelizeRepository.getTransaction(options)
 
     const currentUser = SequelizeRepository.getCurrentUser(options)
@@ -239,6 +245,15 @@ class TenantRepository {
   }
 
   static async findById(id, options: IRepositoryOptions) {
+    const redis = await createRedisClient(true)
+    const tenantId = `tenant:${id}`
+
+    const tenantCache = new RedisCache(tenantId, redis)
+    const cachedTenant = JSON.parse(await tenantCache.getValue(tenantId))
+    if (cachedTenant) {
+      return cachedTenant
+    }
+
     const transaction = SequelizeRepository.getTransaction(options)
 
     const include = ['settings', 'conversationSettings']
@@ -247,6 +262,8 @@ class TenantRepository {
       include,
       transaction,
     })
+
+    await tenantCache.setValue(tenantId, JSON.stringify(record))
 
     return record
   }
@@ -392,6 +409,14 @@ class TenantRepository {
       id: record.id,
       label: record.name,
     }))
+  }
+
+  static async _bustCacheForTenant(id): Promise<void> {
+    const redis = await createRedisClient(true)
+    const tenantId = `tenant:${id}`
+
+    const tenantCache = new RedisCache(tenantId, redis)
+    await tenantCache.delete(tenantId)
   }
 
   static async _createAuditLog(action, record, data, options: IRepositoryOptions) {
