@@ -8,12 +8,26 @@ import Error404 from '../../errors/Error404'
 import { isUserInTenant } from '../utils/userTenantUtils'
 import { IRepositoryOptions } from './IRepositoryOptions'
 import SequelizeArrayUtils from '../utils/sequelizeArrayUtils'
-import { createRedisClient } from '../../utils/redis'
+import { createRedisClient, RedisClient } from '../../utils/redis'
 import { RedisCache } from '../../utils/redis/redisCache'
 
 const { Op } = Sequelize
 
 export default class UserRepository {
+  static _userCache: RedisCache
+
+  static _redisClient: RedisClient
+
+  static async getUserCache(): Promise<RedisCache> {
+    if (this._userCache) {
+      return this._userCache
+    }
+    if (!this._redisClient) {
+      this._redisClient = await createRedisClient(true)
+    }
+    return new RedisCache(`user`, this._redisClient)
+  }
+
   /**
    * Finds the user that owns the given tenant
    * @param tenantId
@@ -131,7 +145,7 @@ export default class UserRepository {
   }
 
   static async updateProfile(id, data, options: IRepositoryOptions) {
-    UserRepository._bustCacheForUser(id)
+    await this._bustCacheForUser(id)
 
     const currentUser = SequelizeRepository.getCurrentUser(options)
 
@@ -289,7 +303,7 @@ export default class UserRepository {
   }
 
   static async update(id, data, options: IRepositoryOptions) {
-    UserRepository._bustCacheForUser(id)
+    await this._bustCacheForUser(id)
 
     const currentUser = SequelizeRepository.getCurrentUser(options)
 
@@ -510,11 +524,8 @@ export default class UserRepository {
   }
 
   static async findById(id, options: IRepositoryOptions) {
-    const redis = await createRedisClient(true)
-    const userId = `user:${id}`
-
-    const userCache = new RedisCache(userId, redis)
-    const cachedUser = JSON.parse(await userCache.getValue(userId))
+    const userCache = await this.getUserCache()
+    const cachedUser = JSON.parse(await userCache.getValue(id))
     if (cachedUser) {
       return cachedUser
     }
@@ -541,7 +552,7 @@ export default class UserRepository {
       record = this._mapUserForTenant(record, currentTenant)
     }
 
-    await userCache.setValue(userId, JSON.stringify(record), 7200)
+    await userCache.setValue(id, JSON.stringify(record), 7200)
 
     return record
   }
@@ -752,11 +763,8 @@ export default class UserRepository {
   }
 
   static async _bustCacheForUser(id): Promise<void> {
-    const redis = await createRedisClient(true)
-    const userId = `user:${id}`
-
-    const userCache = new RedisCache(userId, redis)
-    await userCache.delete(userId)
+    const userCache = await this.getUserCache()
+    await userCache.delete(id)
   }
 
   static async _populateRelationsForRows(rows, options: IRepositoryOptions) {
