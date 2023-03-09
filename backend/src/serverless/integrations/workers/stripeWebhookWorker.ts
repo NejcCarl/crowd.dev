@@ -11,6 +11,7 @@ import RedisPubSubEmitter from '../../../utils/redis/pubSubEmitter'
 import { timeout } from '../../../utils/timing'
 import { NodeWorkerMessageType } from '../../types/workerTypes'
 import { sendNodeWorkerMessage } from '../../utils/nodeWorkerSQS'
+import TenantRepository from '../../../database/repositories/tenantRepository'
 
 const log = createServiceChildLogger('stripeWebhookWorker')
 
@@ -69,7 +70,7 @@ export const processStripeWebhook = async (message: any) => {
       const subscriptionEndsAt = subscription.current_period_end
       const tenantId = stripeWebhookMessage.data.object.client_reference_id
 
-      const tenant = await options.database.tenant.findByPk(tenantId)
+      const tenant = await TenantRepository.findById(tenantId, options)
 
       if (!tenant) {
         log.error({ tenantId }, 'Tenant not found!')
@@ -114,10 +115,7 @@ export const processStripeWebhook = async (message: any) => {
       log.info(stripeWebhookMessage.data.object.billing_reason, 'Invoice payment event')
 
       if (stripeWebhookMessage.data.object.billing_reason === 'subscription_cycle') {
-        // find tenant by stripeSubscriptionId
-        const tenant = await options.database.tenant.findOne({
-          where: { stripeSubscriptionId: stripeWebhookMessage.data.object.subscription },
-        })
+        const tenant = await TenantRepository.findTenantByStripeSubscriptionId(stripeWebhookMessage.data.object.subscription, options)
 
         const subscription = await stripe.subscriptions.retrieve(
           stripeWebhookMessage.data.object.subscription,

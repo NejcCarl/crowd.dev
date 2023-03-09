@@ -4,6 +4,7 @@ import * as fs from 'fs'
 import path from 'path'
 import { createServiceLogger } from '../../utils/logging'
 import SequelizeRepository from '../../database/repositories/sequelizeRepository'
+import TenantRepository from '../../database/repositories/tenantRepository'
 
 const banner = fs.readFileSync(path.join(__dirname, 'banner.txt'), 'utf8')
 
@@ -70,7 +71,7 @@ if (parameters.help || !parameters.tenant || !parameters.plan) {
     const tenantIds = parameters.tenant.split(',')
 
     for (const tenantId of tenantIds) {
-      const tenant = await options.database.tenant.findByPk(tenantId)
+      const tenant = await TenantRepository.findById(tenantId, options)
 
       if (!tenant) {
         log.error({ tenantId }, 'Tenant not found!')

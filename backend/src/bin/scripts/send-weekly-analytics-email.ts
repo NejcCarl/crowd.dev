@@ -11,6 +11,7 @@ import { NodeWorkerMessageType } from '../../serverless/types/workerTypes'
 import { NodeWorkerMessageBase } from '../../types/mq/nodeWorkerMessageBase'
 import RecurringEmailsHistoryRepository from '../../database/repositories/recurringEmailsHistoryRepository'
 import { RecurringEmailType } from '../../types/recurringEmailsHistoryTypes'
+import TenantRepository from '../../database/repositories/tenantRepository'
 
 const banner = fs.readFileSync(path.join(__dirname, 'banner.txt'), 'utf8')
 
@@ -59,7 +60,7 @@ if (parameters.help || !parameters.tenant) {
     const rehRepository = new RecurringEmailsHistoryRepository(options)
 
     for (const tenantId of tenantIds) {
-      const tenant = await options.database.tenant.findByPk(tenantId)
+      const tenant = await TenantRepository.findById(tenantId, options)
       const isEmailAlreadySent =
         (await rehRepository.findByWeekOfYear(
           tenantId,
