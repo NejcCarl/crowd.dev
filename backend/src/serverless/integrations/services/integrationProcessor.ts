@@ -211,76 +211,78 @@ export class IntegrationProcessor extends LoggingBase {
     }
 
     const userContext = await getUserContext(webhook.tenantId)
-    userContext.log = logger
+    if (userContext) {
+      userContext.log = logger
 
-    const integration = await IntegrationRepository.findById(webhook.integrationId, userContext)
-    const intService = singleOrDefault(
-      this.integrationServices,
-      (s) => s.type === integration.platform,
-    )
-    if (intService === undefined) {
-      logger.error('No integration service configured!')
-      throw new Error(`No integration service configured for type '${integration.platform}'!`)
-    }
-
-    const stepContext: IStepContext = {
-      startTimestamp: moment().utc().unix(),
-      limitCount: integration.limitCount || 0,
-      onboarding: false,
-      pipelineData: {},
-      webhook,
-      integration,
-      serviceContext: userContext,
-      repoContext: userContext,
-      logger,
-    }
-
-    if (integration.settings.updateMemberAttributes) {
-      logger.trace('Updating member attributes!')
-
-      await intService.createMemberAttributes(stepContext)
-
-      integration.settings.updateMemberAttributes = false
-      await IntegrationRepository.update(
-        integration.id,
-        { settings: integration.settings },
-        userContext,
+      const integration = await IntegrationRepository.findById(webhook.integrationId, userContext)
+      const intService = singleOrDefault(
+        this.integrationServices,
+        (s) => s.type === integration.platform,
       )
-    }
+      if (intService === undefined) {
+        logger.error('No integration service configured!')
+        throw new Error(`No integration service configured for type '${integration.platform}'!`)
+      }
 
-    const whContext = { ...userContext }
-    whContext.transaction = await SequelizeRepository.createTransaction(whContext)
+      const stepContext: IStepContext = {
+        startTimestamp: moment().utc().unix(),
+        limitCount: integration.limitCount || 0,
+        onboarding: false,
+        pipelineData: {},
+        webhook,
+        integration,
+        serviceContext: userContext,
+        repoContext: userContext,
+        logger,
+      }
 
-    try {
-      const result = await intService.processWebhook(webhook, stepContext)
-      for (const operation of result.operations) {
-        if (operation.records.length > 0) {
-          logger.trace(
-            { operationType: operation.type },
-            `Processing bulk operation with ${operation.records.length} records!`,
-          )
-          await bulkOperations(integration.tenantId, operation.type, operation.records)
+      if (integration.settings.updateMemberAttributes) {
+        logger.trace('Updating member attributes!')
+
+        await intService.createMemberAttributes(stepContext)
+
+        integration.settings.updateMemberAttributes = false
+        await IntegrationRepository.update(
+          integration.id,
+          { settings: integration.settings },
+          userContext,
+        )
+      }
+
+      const whContext = { ...userContext }
+      whContext.transaction = await SequelizeRepository.createTransaction(whContext)
+
+      try {
+        const result = await intService.processWebhook(webhook, stepContext)
+        for (const operation of result.operations) {
+          if (operation.records.length > 0) {
+            logger.trace(
+              { operationType: operation.type },
+              `Processing bulk operation with ${operation.records.length} records!`,
+            )
+            await bulkOperations(integration.tenantId, operation.type, operation.records)
+          }
         }
+        await repo.markCompleted(webhook.id)
+        logger.debug('Webhook processed!')
+      } catch (err) {
+        if (err.rateLimitResetSeconds) {
+          logger.warn(err, 'Rate limit reached while processing webhook! Delaying...')
+          await sendNodeWorkerMessage(
+            integration.tenantId,
+            new NodeWorkerProcessWebhookMessage(integration.tenantId, webhookId),
+            err.rateLimitResetSeconds + 5,
+          )
+        } else {
+          logger.error(err, 'Error processing webhook!')
+          await repo.markError(
+            webhook.id,
+            new WebhookError(webhook.id, 'Error processing webhook!', err),
+          )
+        }
+      } finally {
+        await SequelizeRepository.commitTransaction(whContext.transaction)
       }
-      await repo.markCompleted(webhook.id)
-      logger.debug('Webhook processed!')
-    } catch (err) {
-      if (err.rateLimitResetSeconds) {
-        logger.warn(err, 'Rate limit reached while processing webhook! Delaying...')
-        await sendNodeWorkerMessage(
-          integration.tenantId,
-          new NodeWorkerProcessWebhookMessage(integration.tenantId, webhookId),
-          err.rateLimitResetSeconds + 5,
-        )
-      } else {
-        logger.error(err, 'Error processing webhook!')
-        await repo.markError(
-          webhook.id,
-          new WebhookError(webhook.id, 'Error processing webhook!', err),
-        )
-      }
-    } finally {
-      await SequelizeRepository.commitTransaction(whContext.transaction)
     }
   }
 
@@ -295,381 +297,386 @@ export class IntegrationProcessor extends LoggingBase {
     logger.info('Processing integration!')
 
     const userContext = await getUserContext(req.tenantId)
-    userContext.log = logger
+    if (userContext) {
+      userContext.log = logger
 
-    // load integration from database
-    const integration = req.integrationId
-      ? await IntegrationRepository.findById(req.integrationId, userContext)
-      : await IntegrationRepository.findByPlatform(req.metadata.platform, userContext)
+      // load integration from database
+      const integration = req.integrationId
+        ? await IntegrationRepository.findById(req.integrationId, userContext)
+        : await IntegrationRepository.findByPlatform(req.metadata.platform, userContext)
 
-    if (!req.onboarding) {
-      const processing = await this.redisCache.getValue(integration.id)
-      if (processing !== null) {
-        logger.info('Integration is already being processed!')
-        return
-      }
-    }
-
-    await this.redisCache.setValue(integration.id, 'processing', 5 * 60)
-
-    // get the relevant integration service that is supposed to be configured already
-    const intService = singleOrDefault(
-      this.integrationServices,
-      (s) => s.type === req.integrationType,
-    )
-    if (intService === undefined) {
-      logger.error('No integration service configured!')
-      throw new Error(`No integration service configured for type '${req.integrationType}'!`)
-    }
-
-    const stepContext: IStepContext = {
-      startTimestamp: moment().utc().unix(),
-      limitCount: integration.limitCount || 0,
-      onboarding: req.onboarding,
-      pipelineData: {},
-      integration,
-      serviceContext: userContext,
-      repoContext: userContext,
-      logger,
-    }
-
-    if (integration.settings.updateMemberAttributes) {
-      logger.trace('Updating member attributes!')
-
-      await intService.createMemberAttributes(stepContext)
-
-      integration.settings.updateMemberAttributes = false
-      await IntegrationRepository.update(
-        integration.id,
-        { settings: integration.settings },
-        userContext,
-      )
-    }
-
-    const failedStreams = []
-    let setError = false
-
-    try {
-      // check global limit reset
-      if (intService.limitResetFrequencySeconds > 0 && integration.limitLastResetAt) {
-        const secondsSinceLastReset = moment()
-          .utc()
-          .diff(moment(integration.limitLastResetAt).utc(), 'seconds')
-
-        if (secondsSinceLastReset >= intService.limitResetFrequencySeconds) {
-          integration.limitCount = 0
-          integration.limitLastResetAt = moment().utc().toISOString()
-
-          await IntegrationRepository.update(
-            integration.id,
-            {
-              limitCount: integration.limitCount,
-              limitLastResetAt: integration.limitLastResetAt,
-            },
-            userContext,
-          )
-        }
-      }
-
-      // preprocess if needed
-      logger.trace('Preprocessing integration!')
-      try {
-        await intService.preprocess(stepContext)
-      } catch (err) {
-        if (err.rateLimitResetSeconds) {
-          // need to delay integration processing
-          logger.warn(err, 'Rate limit reached while preprocessing integration! Delaying...')
-          await sendNodeWorkerMessage(req.tenantId, req, err.rateLimitResetSeconds + 5)
+      if (!req.onboarding) {
+        const processing = await this.redisCache.getValue(integration.id)
+        if (processing !== null) {
+          logger.info('Integration is already being processed!')
           return
         }
-
-        throw err
       }
 
-      // detect streams to process for this integration
-      let streams: IIntegrationStream[]
-      if (
-        (req.retryStreams && req.retryStreams.length > 0) ||
-        (req.remainingStreams && req.remainingStreams.length > 0)
-      ) {
-        const retryStreams = req.retryStreams || []
-        streams = req.remainingStreams || []
+      await this.redisCache.setValue(integration.id, 'processing', 5 * 60)
 
-        logger.info(
-          { retryStreamCount: retryStreams.length, delayedStreamCount: streams.length },
-          'Detected retried/delayed streams in request - skipping integration service getStreams method call!',
+      // get the relevant integration service that is supposed to be configured already
+      const intService = singleOrDefault(
+        this.integrationServices,
+        (s) => s.type === req.integrationType,
+      )
+      if (intService === undefined) {
+        logger.error('No integration service configured!')
+        throw new Error(`No integration service configured for type '${req.integrationType}'!`)
+      }
+
+      const stepContext: IStepContext = {
+        startTimestamp: moment().utc().unix(),
+        limitCount: integration.limitCount || 0,
+        onboarding: req.onboarding,
+        pipelineData: {},
+        integration,
+        serviceContext: userContext,
+        repoContext: userContext,
+        logger,
+      }
+
+      if (integration.settings.updateMemberAttributes) {
+        logger.trace('Updating member attributes!')
+
+        await intService.createMemberAttributes(stepContext)
+
+        integration.settings.updateMemberAttributes = false
+        await IntegrationRepository.update(
+          integration.id,
+          { settings: integration.settings },
+          userContext,
         )
+      }
 
-        for (const retryStream of retryStreams) {
-          const stream = retryStream.stream
-          stream.id = retryStream.id
-          streams.push(stream)
+      const failedStreams = []
+      let setError = false
+
+      try {
+        // check global limit reset
+        if (intService.limitResetFrequencySeconds > 0 && integration.limitLastResetAt) {
+          const secondsSinceLastReset = moment()
+            .utc()
+            .diff(moment(integration.limitLastResetAt).utc(), 'seconds')
+
+          if (secondsSinceLastReset >= intService.limitResetFrequencySeconds) {
+            integration.limitCount = 0
+            integration.limitLastResetAt = moment().utc().toISOString()
+
+            await IntegrationRepository.update(
+              integration.id,
+              {
+                limitCount: integration.limitCount,
+                limitLastResetAt: integration.limitLastResetAt,
+              },
+              userContext,
+            )
+          }
         }
-      } else {
-        logger.trace('Detecting streams!')
+
+        // preprocess if needed
+        logger.trace('Preprocessing integration!')
         try {
-          streams = await intService.getStreams(stepContext)
+          await intService.preprocess(stepContext)
         } catch (err) {
           if (err.rateLimitResetSeconds) {
             // need to delay integration processing
-            logger.warn(err, 'Rate limit reached while getting integration streams! Delaying...')
+            logger.warn(err, 'Rate limit reached while preprocessing integration! Delaying...')
             await sendNodeWorkerMessage(req.tenantId, req, err.rateLimitResetSeconds + 5)
             return
           }
 
           throw err
         }
-      }
 
-      // delay for retries/continuing with the remaining streams (in seconds)
-      let delay: number = 5
+        // detect streams to process for this integration
+        let streams: IIntegrationStream[]
+        if (
+          (req.retryStreams && req.retryStreams.length > 0) ||
+          (req.remainingStreams && req.remainingStreams.length > 0)
+        ) {
+          const retryStreams = req.retryStreams || []
+          streams = req.remainingStreams || []
 
-      let exit = false
+          logger.info(
+            { retryStreamCount: retryStreams.length, delayedStreamCount: streams.length },
+            'Detected retried/delayed streams in request - skipping integration service getStreams method call!',
+          )
 
-      if (streams.length > 0) {
-        logger.info({ streamCount: streams.length }, 'Detected streams to process!')
-
-        // process streams
-        let processedCount = 0
-        let notifyCount = 0
-        while (streams.length > 0) {
-          // reset value
-          await this.redisCache.setValue(integration.id, 'processing', 5 * 60)
-
-          if ((req as any).exiting) {
-            if (!req.onboarding) {
-              logger.warn('Stopped processing integration (not onboarding)!')
-              exit = true
-              break
-            } else {
-              logger.warn('Stopped processing integration (onboarding)!')
-              delay = 3 * 60
-              break
-            }
+          for (const retryStream of retryStreams) {
+            const stream = retryStream.stream
+            stream.id = retryStream.id
+            streams.push(stream)
           }
-
-          const stream = streams.pop()
-
-          processedCount++
-          notifyCount++
-
-          // surround with try catch so if one stream fails we try all of them as well just in case
+        } else {
+          logger.trace('Detecting streams!')
           try {
-            logger.trace(
-              { stream: JSON.stringify(stream) },
-              `Processing stream! Still have ${streams.length} streams left to process!`,
-            )
-            let processStreamResult
-            try {
-              processStreamResult = await intService.processStream(stream, stepContext)
-            } catch (err) {
-              if (err.rateLimitResetSeconds) {
-                delay = err.rateLimitResetSeconds + 5
-                logger.warn(
-                  { stream: JSON.stringify(stream), delay, message: err.message },
-                  'Rate limit reached while processing stream! Delaying...',
-                )
-                failedStreams.push(stream)
-                break
-              } else {
-                throw err
-              }
-            }
-
-            if (processStreamResult.newStreams && processStreamResult.newStreams.length > 0) {
-              streams.push(...processStreamResult.newStreams)
-
-              logger.info(
-                `Detected ${processStreamResult.newStreams.length} new streams to process! Now we have ${streams.length} streams to process.`,
-              )
-            }
-
-            for (const operation of processStreamResult.operations) {
-              if (operation.records.length > 0) {
-                logger.trace(
-                  { operationType: operation.type },
-                  `Processing bulk operation with ${operation.records.length} records!`,
-                )
-                stepContext.limitCount += operation.records.length
-                await bulkOperations(integration.tenantId, operation.type, operation.records)
-              }
-            }
-
-            if (processStreamResult.nextPageStream !== undefined) {
-              if (
-                !req.onboarding &&
-                (await intService.isProcessingFinished(
-                  stepContext,
-                  stream,
-                  processStreamResult.operations,
-                  processStreamResult.lastRecordTimestamp,
-                ))
-              ) {
-                logger.warn('Integration processing finished because of service implementation!')
-              } else {
-                logger.trace(
-                  { currentStream: JSON.stringify(stream) },
-                  `Detected next page stream! Now we have ${streams.length} left to process!`,
-                )
-                streams.push(processStreamResult.nextPageStream)
-              }
-            }
-
-            if (processStreamResult.sleep !== undefined && processStreamResult.sleep > 0) {
-              logger.warn(
-                `Stream processing resulted in a requested delay of ${processStreamResult.sleep}! Will delay ${streams.length} streams!`,
-              )
-
-              delay = processStreamResult.sleep
-              break
-            }
-
-            if (intService.globalLimit > 0 && stepContext.limitCount >= intService.globalLimit) {
-              // if limit reset frequency is 0 we don't need to care about limits
-              if (intService.limitResetFrequencySeconds > 0) {
-                logger.warn(
-                  {
-                    limitCount: stepContext.limitCount,
-                    globalLimit: intService.globalLimit,
-                    streamsLeft: streams.length,
-                  },
-                  'We reached a global limit - stopping processing!',
-                )
-
-                integration.limitCount = stepContext.limitCount
-
-                const secondsSinceLastReset = moment()
-                  .utc()
-                  .diff(moment(integration.limitLastResetAt).utc(), 'seconds')
-
-                if (secondsSinceLastReset < intService.limitResetFrequencySeconds) {
-                  delay = intService.limitResetFrequencySeconds - secondsSinceLastReset
-                }
-
-                break
-              }
-            }
-
-            if (notifyCount === 50 || streams.length === 0) {
-              logger.info(
-                `Processed ${processedCount} streams! Still have ${streams.length} to process.`,
-              )
-              notifyCount = 0
-            }
+            streams = await intService.getStreams(stepContext)
           } catch (err) {
-            logger.error(err, { stream: JSON.stringify(stream) }, 'Error processing a stream!')
-            failedStreams.push(stream)
+            if (err.rateLimitResetSeconds) {
+              // need to delay integration processing
+              logger.warn(err, 'Rate limit reached while getting integration streams! Delaying...')
+              await sendNodeWorkerMessage(req.tenantId, req, err.rateLimitResetSeconds + 5)
+              return
+            }
+
+            throw err
           }
         }
 
-        // postprocess integration settings
-        await intService.postprocess(stepContext, failedStreams, streams)
+        // delay for retries/continuing with the remaining streams (in seconds)
+        let delay: number = 5
 
-        if (!exit && (streams.length > 0 || failedStreams.length > 0)) {
-          logger.warn(
-            { failed: failedStreams.length, remaining: streams.length },
-            'Integration processing finished - some streams were not processed!',
-          )
+        let exit = false
 
-          const existingRetryStreams = req.retryStreams || []
+        if (streams.length > 0) {
+          logger.info({ streamCount: streams.length }, 'Detected streams to process!')
 
-          const retryStreams: IIntegrationStreamRetry[] = []
-          let streamRetryLimitReached = false
-          for (const failedStream of failedStreams) {
-            let retryCount = 1
-            let id = uuid()
-            if (failedStream.id) {
-              for (const existingRetryStream of existingRetryStreams) {
-                if (failedStream.id === existingRetryStream.id) {
-                  retryCount = existingRetryStream.retryCount + 1
-                  id = existingRetryStream.id
+          // process streams
+          let processedCount = 0
+          let notifyCount = 0
+          while (streams.length > 0) {
+            // reset value
+            await this.redisCache.setValue(integration.id, 'processing', 5 * 60)
+
+            if ((req as any).exiting) {
+              if (!req.onboarding) {
+                logger.warn('Stopped processing integration (not onboarding)!')
+                exit = true
+                break
+              } else {
+                logger.warn('Stopped processing integration (onboarding)!')
+                delay = 3 * 60
+                break
+              }
+            }
+
+            const stream = streams.pop()
+
+            processedCount++
+            notifyCount++
+
+            // surround with try catch so if one stream fails we try all of them as well just in case
+            try {
+              logger.trace(
+                { stream: JSON.stringify(stream) },
+                `Processing stream! Still have ${streams.length} streams left to process!`,
+              )
+              let processStreamResult
+              try {
+                processStreamResult = await intService.processStream(stream, stepContext)
+              } catch (err) {
+                if (err.rateLimitResetSeconds) {
+                  delay = err.rateLimitResetSeconds + 5
+                  logger.warn(
+                    { stream: JSON.stringify(stream), delay, message: err.message },
+                    'Rate limit reached while processing stream! Delaying...',
+                  )
+                  failedStreams.push(stream)
+                  break
+                } else {
+                  throw err
+                }
+              }
+
+              if (processStreamResult.newStreams && processStreamResult.newStreams.length > 0) {
+                streams.push(...processStreamResult.newStreams)
+
+                logger.info(
+                  `Detected ${processStreamResult.newStreams.length} new streams to process! Now we have ${streams.length} streams to process.`,
+                )
+              }
+
+              for (const operation of processStreamResult.operations) {
+                if (operation.records.length > 0) {
+                  logger.trace(
+                    { operationType: operation.type },
+                    `Processing bulk operation with ${operation.records.length} records!`,
+                  )
+                  stepContext.limitCount += operation.records.length
+                  await bulkOperations(integration.tenantId, operation.type, operation.records)
+                }
+              }
+
+              if (processStreamResult.nextPageStream !== undefined) {
+                if (
+                  !req.onboarding &&
+                  (await intService.isProcessingFinished(
+                    stepContext,
+                    stream,
+                    processStreamResult.operations,
+                    processStreamResult.lastRecordTimestamp,
+                  ))
+                ) {
+                  logger.warn('Integration processing finished because of service implementation!')
+                } else {
+                  logger.trace(
+                    { currentStream: JSON.stringify(stream) },
+                    `Detected next page stream! Now we have ${streams.length} left to process!`,
+                  )
+                  streams.push(processStreamResult.nextPageStream)
+                }
+              }
+
+              if (processStreamResult.sleep !== undefined && processStreamResult.sleep > 0) {
+                logger.warn(
+                  `Stream processing resulted in a requested delay of ${processStreamResult.sleep}! Will delay ${streams.length} streams!`,
+                )
+
+                delay = processStreamResult.sleep
+                break
+              }
+
+              if (intService.globalLimit > 0 && stepContext.limitCount >= intService.globalLimit) {
+                // if limit reset frequency is 0 we don't need to care about limits
+                if (intService.limitResetFrequencySeconds > 0) {
+                  logger.warn(
+                    {
+                      limitCount: stepContext.limitCount,
+                      globalLimit: intService.globalLimit,
+                      streamsLeft: streams.length,
+                    },
+                    'We reached a global limit - stopping processing!',
+                  )
+
+                  integration.limitCount = stepContext.limitCount
+
+                  const secondsSinceLastReset = moment()
+                    .utc()
+                    .diff(moment(integration.limitLastResetAt).utc(), 'seconds')
+
+                  if (secondsSinceLastReset < intService.limitResetFrequencySeconds) {
+                    delay = intService.limitResetFrequencySeconds - secondsSinceLastReset
+                  }
+
                   break
                 }
               }
+
+              if (notifyCount === 50 || streams.length === 0) {
+                logger.info(
+                  `Processed ${processedCount} streams! Still have ${streams.length} to process.`,
+                )
+                notifyCount = 0
+              }
+            } catch (err) {
+              logger.error(err, { stream: JSON.stringify(stream) }, 'Error processing a stream!')
+              failedStreams.push(stream)
             }
+          }
 
-            if (retryCount > MAX_STREAM_RETRIES) {
-              logger.warn(
-                { failedStream: JSON.stringify(failedStream) },
-                'Failed stream will not be retried because it reached retry limit!',
-              )
-              streamRetryLimitReached = true
-            } else {
-              retryStreams.push({
-                id,
-                retryCount,
-                stream: failedStream,
-              })
+          // postprocess integration settings
+          await intService.postprocess(stepContext, failedStreams, streams)
 
-              if (delay < retryCount * 5) {
-                delay = retryCount * 5
+          if (!exit && (streams.length > 0 || failedStreams.length > 0)) {
+            logger.warn(
+              { failed: failedStreams.length, remaining: streams.length },
+              'Integration processing finished - some streams were not processed!',
+            )
+
+            const existingRetryStreams = req.retryStreams || []
+
+            const retryStreams: IIntegrationStreamRetry[] = []
+            let streamRetryLimitReached = false
+            for (const failedStream of failedStreams) {
+              let retryCount = 1
+              let id = uuid()
+              if (failedStream.id) {
+                for (const existingRetryStream of existingRetryStreams) {
+                  if (failedStream.id === existingRetryStream.id) {
+                    retryCount = existingRetryStream.retryCount + 1
+                    id = existingRetryStream.id
+                    break
+                  }
+                }
+              }
+
+              if (retryCount > MAX_STREAM_RETRIES) {
+                logger.warn(
+                  { failedStream: JSON.stringify(failedStream) },
+                  'Failed stream will not be retried because it reached retry limit!',
+                )
+                streamRetryLimitReached = true
+              } else {
+                retryStreams.push({
+                  id,
+                  retryCount,
+                  stream: failedStream,
+                })
+
+                if (delay < retryCount * 5) {
+                  delay = retryCount * 5
+                }
               }
             }
-          }
 
-          if (streams.length > 0 || retryStreams.length > 0) {
-            await sendNodeWorkerMessage(
-              req.tenantId,
-              new NodeWorkerIntegrationProcessMessage(
-                req.integrationType,
+            if (streams.length > 0 || retryStreams.length > 0) {
+              await sendNodeWorkerMessage(
                 req.tenantId,
-                req.onboarding,
-                req.integrationId,
-                req.microserviceId,
-                req.metadata,
-                retryStreams,
-                streams,
-              ),
-              delay,
-            )
-          } else if (streamRetryLimitReached && req.onboarding) {
-            setError = true
+                new NodeWorkerIntegrationProcessMessage(
+                  req.integrationType,
+                  req.tenantId,
+                  req.onboarding,
+                  req.integrationId,
+                  req.microserviceId,
+                  req.metadata,
+                  retryStreams,
+                  streams,
+                ),
+                delay,
+              )
+            } else if (streamRetryLimitReached && req.onboarding) {
+              setError = true
+            }
+          }
+          logger.info('Done processing integration!')
+        } else {
+          logger.warn('No streams detected!')
+        }
+      } catch (err) {
+        logger.error(err, 'Error while processing integration!')
+        setError = req.onboarding
+      } finally {
+        let emailSentAt
+        if (!setError && !integration.emailSentAt) {
+          const tenantUsers = await UserRepository.findAllUsersOfTenant(integration.tenantId)
+          emailSentAt = new Date()
+          for (const user of tenantUsers) {
+            await new EmailSender(EmailSender.TEMPLATES.INTEGRATION_DONE, {
+              integrationName: i18n('en', `entities.integration.name.${integration.platform}`),
+              link: API_CONFIG.frontendUrl,
+            }).sendTo(user.email)
           }
         }
-        logger.info('Done processing integration!')
-      } else {
-        logger.warn('No streams detected!')
-      }
-    } catch (err) {
-      logger.error(err, 'Error while processing integration!')
-      setError = req.onboarding
-    } finally {
-      let emailSentAt
-      if (!setError && !integration.emailSentAt) {
-        const tenantUsers = await UserRepository.findAllUsersOfTenant(integration.tenantId)
-        emailSentAt = new Date()
-        for (const user of tenantUsers) {
-          await new EmailSender(EmailSender.TEMPLATES.INTEGRATION_DONE, {
-            integrationName: i18n('en', `entities.integration.name.${integration.platform}`),
-            link: API_CONFIG.frontendUrl,
-          }).sendTo(user.email)
-        }
-      }
 
-      await this.redisCache.delete(integration.id)
+        await this.redisCache.delete(integration.id)
 
-      await IntegrationRepository.update(
-        integration.id,
-        {
-          status: setError ? 'error' : 'done',
-          emailSentAt,
-          settings: stepContext.integration.settings,
-          refreshToken: stepContext.integration.refreshToken,
-          token: stepContext.integration.token,
-        },
-        userContext,
-      )
-
-      if (req.onboarding && this.apiPubSubEmitter) {
-        this.apiPubSubEmitter.emit(
-          'user',
-          new ApiWebsocketMessage(
-            'integration-completed',
-            JSON.stringify({ integrationId: integration.id, status: setError ? 'error' : 'done' }),
-            undefined,
-            integration.tenantId,
-          ),
+        await IntegrationRepository.update(
+          integration.id,
+          {
+            status: setError ? 'error' : 'done',
+            emailSentAt,
+            settings: stepContext.integration.settings,
+            refreshToken: stepContext.integration.refreshToken,
+            token: stepContext.integration.token,
+          },
+          userContext,
         )
+
+        if (req.onboarding && this.apiPubSubEmitter) {
+          this.apiPubSubEmitter.emit(
+            'user',
+            new ApiWebsocketMessage(
+              'integration-completed',
+              JSON.stringify({
+                integrationId: integration.id,
+                status: setError ? 'error' : 'done',
+              }),
+              undefined,
+              integration.tenantId,
+            ),
+          )
+        }
       }
     }
   }

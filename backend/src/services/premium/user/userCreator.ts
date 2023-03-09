@@ -115,7 +115,7 @@ export default class UserCreator {
       },
     )
 
-    if (!isUserAlreadyInTenant) {
+    if (tenantUser && !isUserAlreadyInTenant) {
       this.emailsToInvite.push({
         email,
         token: tenantUser.invitationToken,

@@ -31,30 +31,32 @@ async function twitterFollowsFixSourceIdsWithTimestamp() {
     const tenantId = t.id
     // get user context
     const userContext = await getUserContext(tenantId)
-    const integrationService = new IntegrationService(userContext)
+    if (userContext) {
+      const integrationService = new IntegrationService(userContext)
 
-    const twitterIntegration = (
-      await integrationService.findAndCountAll({ filter: { platform: PlatformType.TWITTER } })
-    ).rows[0]
+      const twitterIntegration = (
+        await integrationService.findAndCountAll({ filter: { platform: PlatformType.TWITTER } })
+      ).rows[0]
 
-    if (twitterIntegration) {
-      const actService = new ActivityService(userContext)
+      if (twitterIntegration) {
+        const actService = new ActivityService(userContext)
 
-      // get activities where timestamp != 1970-01-01, we can query by > 2000-01-01
-      const activities = await actService.findAndCountAll({
-        filter: { type: 'follow', timestampRange: ['2000-01-01'] },
-      })
+        // get activities where timestamp != 1970-01-01, we can query by > 2000-01-01
+        const activities = await actService.findAndCountAll({
+          filter: { type: 'follow', timestampRange: ['2000-01-01'] },
+        })
 
-      for (const activity of activities.rows) {
-        log.info({ activity }, 'Activity')
-        // calculate sourceId with fixed timestamps
-        const sourceIdRegenerated = IntegrationServiceBase.generateSourceIdHash(
-          activity.communityMember.username.twitter,
-          'follow',
-          '1970-01-01T00:00:00+00:00',
-          'twitter',
-        )
-        await actService.update(activity.id, { sourceId: sourceIdRegenerated })
+        for (const activity of activities.rows) {
+          log.info({ activity }, 'Activity')
+          // calculate sourceId with fixed timestamps
+          const sourceIdRegenerated = IntegrationServiceBase.generateSourceIdHash(
+            activity.communityMember.username.twitter,
+            'follow',
+            '1970-01-01T00:00:00+00:00',
+            'twitter',
+          )
+          await actService.update(activity.id, { sourceId: sourceIdRegenerated })
+        }
       }
     }
   }

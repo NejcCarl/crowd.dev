@@ -10,16 +10,18 @@ const addIsBotToMemberAttributes = async () => {
   // for each tenant
   for (const tenant of tenants.rows) {
     const userContext = await getUserContext(tenant.id)
-    const memberAttributeSettingsService = new MemberAttributeSettingsService(userContext)
+    if (userContext) {
+      const memberAttributeSettingsService = new MemberAttributeSettingsService(userContext)
 
-    console.log(`Creating isBot member attribute for tenant ${tenant.id}`)
-    await memberAttributeSettingsService.create({
-      name: isBotAttributes.name,
-      label: isBotAttributes.label,
-      type: isBotAttributes.type,
-      canDelete: isBotAttributes.canDelete,
-      show: isBotAttributes.show,
-    })
+      console.log(`Creating isBot member attribute for tenant ${tenant.id}`)
+      await memberAttributeSettingsService.create({
+        name: isBotAttributes.name,
+        label: isBotAttributes.label,
+        type: isBotAttributes.type,
+        canDelete: isBotAttributes.canDelete,
+        show: isBotAttributes.show,
+      })
+    }
   }
 }
 

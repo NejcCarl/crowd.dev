@@ -32,46 +32,48 @@ async function eagleEyeEmailDigestWorker(userId: string): Promise<void> {
 
   const userContext = await getUserContext(user.tenants[0].tenant.id, user.id)
 
-  const eagleEyeContentService = new EagleEyeContentService(userContext)
-  const content = (await eagleEyeContentService.search(true)).slice(0, 10).map((c: any) => {
-    c.platformIcon = `${s3Url}/email/${c.platform}.png`
-    c.post.thumbnail = null
-    return c
-  })
+  if (userContext) {
+    const eagleEyeContentService = new EagleEyeContentService(userContext)
+    const content = (await eagleEyeContentService.search(true)).slice(0, 10).map((c: any) => {
+      c.platformIcon = `${s3Url}/email/${c.platform}.png`
+      c.post.thumbnail = null
+      return c
+    })
 
-  await new EmailSender(
-    EmailSender.TEMPLATES.EAGLE_EYE_DIGEST,
-    {
-      content,
-      frequency: user.eagleEyeSettings.emailDigest.frequency,
-      date: moment().format('D MMM YYYY'),
-    },
-    user.tenants[0].tenant.id,
-  ).sendTo(user.eagleEyeSettings.emailDigest.email)
+    await new EmailSender(
+      EmailSender.TEMPLATES.EAGLE_EYE_DIGEST,
+      {
+        content,
+        frequency: user.eagleEyeSettings.emailDigest.frequency,
+        date: moment().format('D MMM YYYY'),
+      },
+      user.tenants[0].tenant.id,
+    ).sendTo(user.eagleEyeSettings.emailDigest.email)
 
-  const rehRepository = new RecurringEmailsHistoryRepository(userContext)
+    const rehRepository = new RecurringEmailsHistoryRepository(userContext)
 
-  const reHistory = await rehRepository.create({
-    tenantId: userContext.currentTenant.id,
-    type: RecurringEmailType.EAGLE_EYE_DIGEST,
-    emailSentAt: moment().toISOString(),
-    emailSentTo: [user.eagleEyeSettings.emailDigest.email],
-  })
+    const reHistory = await rehRepository.create({
+      tenantId: userContext.currentTenant.id,
+      type: RecurringEmailType.EAGLE_EYE_DIGEST,
+      emailSentAt: moment().toISOString(),
+      emailSentTo: [user.eagleEyeSettings.emailDigest.email],
+    })
 
-  // update nextEmailAt
-  const nextEmailAt = EagleEyeSettingsService.getNextEmailDigestDate(
-    user.eagleEyeSettings.emailDigest,
-  )
-  const updateSettings = user.eagleEyeSettings
-  updateSettings.emailDigest.nextEmailAt = nextEmailAt
+    // update nextEmailAt
+    const nextEmailAt = EagleEyeSettingsService.getNextEmailDigestDate(
+      user.eagleEyeSettings.emailDigest,
+    )
+    const updateSettings = user.eagleEyeSettings
+    updateSettings.emailDigest.nextEmailAt = nextEmailAt
 
-  await UserRepository.updateEagleEyeSettings(
-    userContext.currentUser.id,
-    updateSettings,
-    userContext,
-  )
+    await UserRepository.updateEagleEyeSettings(
+      userContext.currentUser.id,
+      updateSettings,
+      userContext,
+    )
 
-  log.info({ receipt: reHistory })
+    log.info({ receipt: reHistory })
+  }
 }
 
 export { eagleEyeEmailDigestWorker }

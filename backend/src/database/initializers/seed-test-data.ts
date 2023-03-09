@@ -20,14 +20,15 @@ async function updateCheckMergeMicroserviceInit() {
 
   for (const tenant of tenants.rows) {
     const userContext = await getUserContext(tenant.id)
+    if (userContext) {
+      const ms = new MicroserviceService(userContext)
 
-    const ms = new MicroserviceService(userContext)
+      const checkMergeMicroservice = await ms.findAndCountAll({ filter: { type: 'check_merge' } })
 
-    const checkMergeMicroservice = await ms.findAndCountAll({ filter: { type: 'check_merge' } })
-
-    // update checkMerge.init = false
-    if (checkMergeMicroservice.count > 0) {
-      await ms.update(checkMergeMicroservice.rows[0].id, { init: false })
+      // update checkMerge.init = false
+      if (checkMergeMicroservice.count > 0) {
+        await ms.update(checkMergeMicroservice.rows[0].id, { init: false })
+      }
     }
   }
 

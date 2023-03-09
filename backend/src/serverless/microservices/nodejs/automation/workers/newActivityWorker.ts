@@ -127,43 +127,44 @@ export const prepareActivityPayload = (activity: any): any => {
  */
 export default async (tenantId: string, activityId?: string, activityData?: any): Promise<void> => {
   const userContext = await getUserContext(tenantId)
+  if (userContext) {
+    try {
+      // check if relevant automations exists in this tenant
+      const automations = await new AutomationRepository(userContext).findAll({
+        trigger: AutomationTrigger.NEW_ACTIVITY,
+        state: AutomationState.ACTIVE,
+      })
 
-  try {
-    // check if relevant automations exists in this tenant
-    const automations = await new AutomationRepository(userContext).findAll({
-      trigger: AutomationTrigger.NEW_ACTIVITY,
-      state: AutomationState.ACTIVE,
-    })
+      if (automations.length > 0) {
+        log.info(`Found ${automations.length} automations to process!`)
+        let activity: any | undefined = activityData
 
-    if (automations.length > 0) {
-      log.info(`Found ${automations.length} automations to process!`)
-      let activity: any | undefined = activityData
+        if (activity === undefined) {
+          activity = await ActivityRepository.findById(activityId, userContext)
+        }
 
-      if (activity === undefined) {
-        activity = await ActivityRepository.findById(activityId, userContext)
-      }
+        for (const automation of automations) {
+          if (await shouldProcessActivity(activity, automation)) {
+            log.info(`Activity ${activity.id} is being processed by automation ${automation.id}!`)
 
-      for (const automation of automations) {
-        if (await shouldProcessActivity(activity, automation)) {
-          log.info(`Activity ${activity.id} is being processed by automation ${automation.id}!`)
-
-          switch (automation.type) {
-            case AutomationType.WEBHOOK:
-              await sendWebhookProcessRequest(
-                tenantId,
-                automation,
-                activity.id,
-                prepareActivityPayload(activity),
-              )
-              break
-            default:
-              log.error(`ERROR: Automation type '${automation.type}' is not supported!`)
+            switch (automation.type) {
+              case AutomationType.WEBHOOK:
+                await sendWebhookProcessRequest(
+                  tenantId,
+                  automation,
+                  activity.id,
+                  prepareActivityPayload(activity),
+                )
+                break
+              default:
+                log.error(`ERROR: Automation type '${automation.type}' is not supported!`)
+            }
           }
         }
       }
+    } catch (error) {
+      log.error(error, 'Error while processing new activity automation trigger!')
+      throw error
     }
-  } catch (error) {
-    log.error(error, 'Error while processing new activity automation trigger!')
-    throw error
   }
 }

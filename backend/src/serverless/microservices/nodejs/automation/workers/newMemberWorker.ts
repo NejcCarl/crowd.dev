@@ -92,42 +92,44 @@ export default async (
 ): Promise<void> => {
   const userContext = await getUserContext(tenantId)
 
-  try {
-    // check if relevant automation exists in this tenant
-    const automations = await new AutomationRepository(userContext).findAll({
-      trigger: AutomationTrigger.NEW_MEMBER,
-      state: AutomationState.ACTIVE,
-    })
+  if (userContext) {
+    try {
+      // check if relevant automation exists in this tenant
+      const automations = await new AutomationRepository(userContext).findAll({
+        trigger: AutomationTrigger.NEW_MEMBER,
+        state: AutomationState.ACTIVE,
+      })
 
-    if (automations.length > 0) {
-      log.info(`Found ${automations.length} automations to process!`)
+      if (automations.length > 0) {
+        log.info(`Found ${automations.length} automations to process!`)
 
-      let member: any | undefined = memberData
-      if (member === undefined) {
-        member = await MemberRepository.findById(memberId, userContext)
-      }
+        let member: any | undefined = memberData
+        if (member === undefined) {
+          member = await MemberRepository.findById(memberId, userContext)
+        }
 
-      for (const automation of automations) {
-        if (await shouldProcessMember(member, automation)) {
-          log.info(`Member ${member.id} is being processed by automation ${automation.id}!`)
+        for (const automation of automations) {
+          if (await shouldProcessMember(member, automation)) {
+            log.info(`Member ${member.id} is being processed by automation ${automation.id}!`)
 
-          switch (automation.type) {
-            case AutomationType.WEBHOOK:
-              await sendWebhookProcessRequest(
-                tenantId,
-                automation,
-                member.id,
-                prepareMemberPayload(member),
-              )
-              break
-            default:
-              log.error(`ERROR: Automation type '${automation.type}' is not supported!`)
+            switch (automation.type) {
+              case AutomationType.WEBHOOK:
+                await sendWebhookProcessRequest(
+                  tenantId,
+                  automation,
+                  member.id,
+                  prepareMemberPayload(member),
+                )
+                break
+              default:
+                log.error(`ERROR: Automation type '${automation.type}' is not supported!`)
+            }
           }
         }
       }
+    } catch (error) {
+      log.error(error, 'Error while processing new member automation trigger!')
+      throw error
     }
-  } catch (error) {
-    log.error(error, 'Error while processing new member automation trigger!')
-    throw error
   }
 }

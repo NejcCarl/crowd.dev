@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import SequelizeRepository from './sequelizeRepository'
 import AuditLogRepository from './auditLogRepository'
 import { IRepositoryOptions } from './IRepositoryOptions'
+import UserRepository from './userRepository'
 
 export default class TenantUserRepository {
   static async findByTenant(tenantId: string, options: IRepositoryOptions): Promise<any[]> {
@@ -79,33 +80,41 @@ export default class TenantUserRepository {
   static async destroy(tenantId, id, options: IRepositoryOptions) {
     const transaction = SequelizeRepository.getTransaction(options)
 
-    const user = await options.database.user.findByPk(id, {
-      transaction,
-    })
+    let user
+    try {
+      user = await UserRepository.findById(id, options)
+    } catch (error) {
+      // noop
+    }
+    await UserRepository._bustCacheForUser(id)
+    if (user) {
+      const tenantUser = await this.findByTenantAndUser(tenantId, id, options)
 
-    const tenantUser = await this.findByTenantAndUser(tenantId, id, options)
+      await tenantUser.destroy({ transaction })
 
-    await tenantUser.destroy({ transaction })
-
-    await AuditLogRepository.log(
-      {
-        entityName: 'user',
-        entityId: user.id,
-        action: AuditLogRepository.DELETE,
-        values: {
-          email: user.email,
+      await AuditLogRepository.log(
+        {
+          entityName: 'user',
+          entityId: user.id,
+          action: AuditLogRepository.DELETE,
+          values: {
+            email: user.email,
+          },
         },
-      },
-      options,
-    )
+        options,
+      )
+    }
   }
 
   static async updateRoles(tenantId, id, roles, options) {
     const transaction = SequelizeRepository.getTransaction(options)
 
-    const user = await options.database.user.findByPk(id, {
-      transaction,
-    })
+    let user
+    try {
+      user = await UserRepository.findById(id, options)
+    } catch (error) {
+      return null
+    }
 
     let tenantUser = await this.findByTenantAndUser(tenantId, id, options)
 

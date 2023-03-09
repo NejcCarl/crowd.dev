@@ -24,77 +24,79 @@ export default async (
   payload: any,
 ): Promise<void> => {
   const userContext = await getUserContext(tenantId)
-  const automationExecutionService = new AutomationExecutionService(userContext)
+  if (userContext) {
+    const automationExecutionService = new AutomationExecutionService(userContext)
 
-  const automation =
-    automationData !== undefined
-      ? automationData
-      : await new AutomationRepository(userContext).findById(automationId)
-  const settings = automation.settings as WebhookSettings
+    const automation =
+      automationData !== undefined
+        ? automationData
+        : await new AutomationRepository(userContext).findById(automationId)
+    const settings = automation.settings as WebhookSettings
 
-  const now = new Date()
-  log.info(`Firing automation ${automation.id} for event ${eventId} to url '${settings.url}'!`)
-  const eventPayload = {
-    eventId,
-    eventType: automation.trigger,
-    eventExecutedAt: now.toISOString(),
-    eventPayload: payload,
-  }
-
-  let success = false
-  try {
-    const result = await request
-      .post(settings.url)
-      .send(eventPayload)
-      .set('User-Agent', 'Crowd.dev Automations Executor')
-      .set('X-CrowdDotDev-Event-Type', automation.trigger)
-      .set('X-CrowdDotDev-Event-ID', eventId)
-
-    success = true
-    log.debug(`Webhook response code ${result.statusCode}!`)
-  } catch (err) {
-    log.warn(
-      `Error while firing webhook automation ${automation.id} for event ${eventId} to url '${settings.url}'!`,
-    )
-
-    let error: any
-
-    if (err.syscall && err.code) {
-      error = {
-        type: 'network',
-        message: `Could not access ${settings.url}!`,
-      }
-    } else if (err.status) {
-      error = {
-        type: 'http_status',
-        message: `POST @ ${settings.url} returned ${err.statusCode} - ${err.statusMessage}!`,
-        body: err.res !== undefined ? err.res.body : undefined,
-      }
-    } else {
-      error = {
-        type: 'unknown',
-        message: err.message,
-        errorObject: err,
-      }
+    const now = new Date()
+    log.info(`Firing automation ${automation.id} for event ${eventId} to url '${settings.url}'!`)
+    const eventPayload = {
+      eventId,
+      eventType: automation.trigger,
+      eventExecutedAt: now.toISOString(),
+      eventPayload: payload,
     }
 
-    await automationExecutionService.create({
-      automation,
-      eventId,
-      payload: eventPayload,
-      state: AutomationExecutionState.ERROR,
-      error,
-    })
+    let success = false
+    try {
+      const result = await request
+        .post(settings.url)
+        .send(eventPayload)
+        .set('User-Agent', 'Crowd.dev Automations Executor')
+        .set('X-CrowdDotDev-Event-Type', automation.trigger)
+        .set('X-CrowdDotDev-Event-ID', eventId)
 
-    throw err
-  }
+      success = true
+      log.debug(`Webhook response code ${result.statusCode}!`)
+    } catch (err) {
+      log.warn(
+        `Error while firing webhook automation ${automation.id} for event ${eventId} to url '${settings.url}'!`,
+      )
 
-  if (success) {
-    await automationExecutionService.create({
-      automation,
-      eventId,
-      payload: eventPayload,
-      state: AutomationExecutionState.SUCCESS,
-    })
+      let error: any
+
+      if (err.syscall && err.code) {
+        error = {
+          type: 'network',
+          message: `Could not access ${settings.url}!`,
+        }
+      } else if (err.status) {
+        error = {
+          type: 'http_status',
+          message: `POST @ ${settings.url} returned ${err.statusCode} - ${err.statusMessage}!`,
+          body: err.res !== undefined ? err.res.body : undefined,
+        }
+      } else {
+        error = {
+          type: 'unknown',
+          message: err.message,
+          errorObject: err,
+        }
+      }
+
+      await automationExecutionService.create({
+        automation,
+        eventId,
+        payload: eventPayload,
+        state: AutomationExecutionState.ERROR,
+        error,
+      })
+
+      throw err
+    }
+
+    if (success) {
+      await automationExecutionService.create({
+        automation,
+        eventId,
+        payload: eventPayload,
+        state: AutomationExecutionState.SUCCESS,
+      })
+    }
   }
 }

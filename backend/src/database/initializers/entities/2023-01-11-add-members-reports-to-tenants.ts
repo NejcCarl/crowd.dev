@@ -8,13 +8,15 @@ export default async () => {
   // for each tenant
   for (const tenant of tenants.rows) {
     const userContext = await getUserContext(tenant.id)
-    const rs = new ReportService(userContext)
+    if (userContext) {
+      const rs = new ReportService(userContext)
 
-    console.log(`Creating members report for tenant ${tenant.id}`)
-    await rs.create({
-      name: 'Members report',
-      public: false,
-      isTemplate: true,
-    })
+      console.log(`Creating members report for tenant ${tenant.id}`)
+      await rs.create({
+        name: 'Members report',
+        public: false,
+        isTemplate: true,
+      })
+    }
   }
 }

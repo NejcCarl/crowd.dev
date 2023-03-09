@@ -14,45 +14,47 @@ import { getSecondsTillEndOfMonth } from '../../../../utils/timing'
 async function bulkEnrichmentWorker(tenantId: string, memberIds: string[]) {
   const userContext = await getUserContext(tenantId)
 
-  const memberEnrichmentService = new MemberEnrichmentService(userContext)
+  if (userContext) {
+    const memberEnrichmentService = new MemberEnrichmentService(userContext)
 
-  const { enrichedMemberCount } = await memberEnrichmentService.bulkEnrich(memberIds)
+    const { enrichedMemberCount } = await memberEnrichmentService.bulkEnrich(memberIds)
 
-  const failedEnrichmentRequests = memberIds.length - enrichedMemberCount
+    const failedEnrichmentRequests = memberIds.length - enrichedMemberCount
 
-  // if there are failed enrichments, deduct these from total memberEnrichmentCount credits
-  if (failedEnrichmentRequests > 0) {
-    const redis = await createRedisClient(true)
+    // if there are failed enrichments, deduct these from total memberEnrichmentCount credits
+    if (failedEnrichmentRequests > 0) {
+      const redis = await createRedisClient(true)
 
-    // get redis cache that stores memberEnrichmentCount
-    const memberEnrichmentCountCache = new RedisCache(
-      FeatureFlagRedisKey.MEMBER_ENRICHMENT_COUNT,
-      redis,
-    )
-
-    // get current enrichment count of tenant from redis
-    const memberEnrichmentCount = await memberEnrichmentCountCache.getValue(
-      userContext.currentTenant.id,
-    )
-
-    // calculate remaining seconds for the end of the month, to set TTL for redis keys
-    const secondsRemainingUntilEndOfMonth = getSecondsTillEndOfMonth()
-
-    if (!memberEnrichmentCount) {
-      await memberEnrichmentCountCache.setValue(
-        userContext.currentTenant.id,
-        '0',
-        secondsRemainingUntilEndOfMonth,
+      // get redis cache that stores memberEnrichmentCount
+      const memberEnrichmentCountCache = new RedisCache(
+        FeatureFlagRedisKey.MEMBER_ENRICHMENT_COUNT,
+        redis,
       )
-    } else {
-      // Before sending the queue message, we increase the memberEnrichmentCount with all member Ids that are sent,
-      // assuming that we'll be able to enrich all.
-      // If any of enrichments failed, we should add these credits back, reducing memberEnrichmentCount
-      await memberEnrichmentCountCache.setValue(
+
+      // get current enrichment count of tenant from redis
+      const memberEnrichmentCount = await memberEnrichmentCountCache.getValue(
         userContext.currentTenant.id,
-        (parseInt(memberEnrichmentCount, 10) - failedEnrichmentRequests).toString(),
-        secondsRemainingUntilEndOfMonth,
       )
+
+      // calculate remaining seconds for the end of the month, to set TTL for redis keys
+      const secondsRemainingUntilEndOfMonth = getSecondsTillEndOfMonth()
+
+      if (!memberEnrichmentCount) {
+        await memberEnrichmentCountCache.setValue(
+          userContext.currentTenant.id,
+          '0',
+          secondsRemainingUntilEndOfMonth,
+        )
+      } else {
+        // Before sending the queue message, we increase the memberEnrichmentCount with all member Ids that are sent,
+        // assuming that we'll be able to enrich all.
+        // If any of enrichments failed, we should add these credits back, reducing memberEnrichmentCount
+        await memberEnrichmentCountCache.setValue(
+          userContext.currentTenant.id,
+          (parseInt(memberEnrichmentCount, 10) - failedEnrichmentRequests).toString(),
+          secondsRemainingUntilEndOfMonth,
+        )
+      }
     }
   }
 }

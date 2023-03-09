@@ -28,27 +28,29 @@ async function conversationInit() {
   for (const tenant of tenants.rows) {
     log.info({ tenantId: tenant.id }, 'Processing tenant!')
     const userContext = await getUserContext(tenant.id)
-    const as = new ActivityService(userContext)
+    if (userContext) {
+      const as = new ActivityService(userContext)
 
-    const discordActivities = await as.findAndCountAll({
-      filter: { platform: PlatformType.DISCORD, type: 'message' },
-      orderBy: 'timestamp_ASC',
-    })
+      const discordActivities = await as.findAndCountAll({
+        filter: { platform: PlatformType.DISCORD, type: 'message' },
+        orderBy: 'timestamp_ASC',
+      })
 
-    for (const discordActivity of discordActivities.rows) {
-      if (discordActivity.parentId) {
-        log.info(
-          { activityId: discordActivity.id, parentId: discordActivity.parentId },
-          'Activity has a parent id!',
-        )
-        // get parent activity
-        const parentAct = await as.findById(discordActivity.parentId)
+      for (const discordActivity of discordActivities.rows) {
+        if (discordActivity.parentId) {
+          log.info(
+            { activityId: discordActivity.id, parentId: discordActivity.parentId },
+            'Activity has a parent id!',
+          )
+          // get parent activity
+          const parentAct = await as.findById(discordActivity.parentId)
 
-        const transaction = await SequelizeRepository.createTransaction(userContext)
+          const transaction = await SequelizeRepository.createTransaction(userContext)
 
-        await as.addToConversation(discordActivity.id, parentAct.id, transaction)
+          await as.addToConversation(discordActivity.id, parentAct.id, transaction)
 
-        await SequelizeRepository.commitTransaction(transaction)
+          await SequelizeRepository.commitTransaction(transaction)
+        }
       }
     }
   }

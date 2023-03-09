@@ -13,9 +13,11 @@ import MicroserviceService from '../../services/microserviceService'
  */
 async function updateMembers(tenantId: string, records: Array<any>): Promise<any> {
   const userContext = await getUserContext(tenantId)
-  const memberService = new MemberService(userContext)
-  for (const record of records) {
-    await memberService.update(record.id, record.update)
+  if (userContext) {
+    const memberService = new MemberService(userContext)
+    for (const record of records) {
+      await memberService.update(record.id, record.update)
+    }
   }
 }
 
@@ -27,9 +29,11 @@ async function updateMembers(tenantId: string, records: Array<any>): Promise<any
  */
 async function upsertMembers(tenantId: string, records: Array<any>): Promise<any> {
   const userContext = await getUserContext(tenantId)
-  const memberService = new MemberService(userContext)
-  for (const record of records) {
-    await memberService.upsert(record)
+  if (userContext) {
+    const memberService = new MemberService(userContext)
+    for (const record of records) {
+      await memberService.upsert(record)
+    }
   }
 }
 
@@ -41,9 +45,11 @@ async function upsertMembers(tenantId: string, records: Array<any>): Promise<any
  */
 async function updateMembersToMerge(tenantId: string, records: Array<any>): Promise<any> {
   const userContext = await getUserContext(tenantId)
-  const memberService = new MemberService(userContext)
-  for (const record of records) {
-    await memberService.addToMerge(record[0], record[1])
+  if (userContext) {
+    const memberService = new MemberService(userContext)
+    for (const record of records) {
+      await memberService.addToMerge(record[0], record[1])
+    }
   }
 }
 
@@ -55,9 +61,11 @@ async function updateMembersToMerge(tenantId: string, records: Array<any>): Prom
  */
 async function upsertActivityWithMembers(tenantId: string, records: Array<any>): Promise<any> {
   const userContext = await getUserContext(tenantId)
-  const activityService = new ActivityService(userContext)
-  for (const record of records) {
-    await activityService.createWithMember(record)
+  if (userContext) {
+    const activityService = new ActivityService(userContext)
+    for (const record of records) {
+      await activityService.createWithMember(record)
+    }
   }
 }
 
@@ -69,9 +77,11 @@ async function upsertActivityWithMembers(tenantId: string, records: Array<any>):
  */
 async function updateIntegrations(tenantId: string, records: Array<any>): Promise<any> {
   const userContext = await getUserContext(tenantId)
-  const integrationService = new IntegrationService(userContext)
-  for (const record of records) {
-    await integrationService.update(record.id, record.update)
+  if (userContext) {
+    const integrationService = new IntegrationService(userContext)
+    for (const record of records) {
+      await integrationService.update(record.id, record.update)
+    }
   }
 }
 
@@ -82,9 +92,11 @@ async function updateIntegrations(tenantId: string, records: Array<any>): Promis
  */
 async function updateMicroservice(tenantId: string, records: Array<any>): Promise<any> {
   const userContext = await getUserContext(tenantId)
-  const microserviceService = new MicroserviceService(userContext)
-  for (const record of records) {
-    await microserviceService.update(record.id, record.update)
+  if (userContext) {
+    const microserviceService = new MicroserviceService(userContext)
+    for (const record of records) {
+      await microserviceService.update(record.id, record.update)
+    }
   }
 }
 

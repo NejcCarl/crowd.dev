@@ -78,15 +78,19 @@ export const processSendgridWebhook = async (message: any) => {
 
   switch (sendgridEvent.event) {
     case SendgridWebhookEventType.DIGEST_OPENED: {
-      EagleEyeContentService.trackDigestEmailOpened(userContext)
+      if (userContext) {
+        EagleEyeContentService.trackDigestEmailOpened(userContext)
+      }
       break
     }
     case SendgridWebhookEventType.POST_CLICKED: {
-      const platform = findPlatform(
-        new URL(sendgridEvent.url).hostname,
-        Object.values(PlatformType),
-      )
-      EagleEyeContentService.trackPostClicked(sendgridEvent.url, platform, userContext, 'email')
+      if (userContext) {
+        const platform = findPlatform(
+          new URL(sendgridEvent.url).hostname,
+          Object.values(PlatformType),
+        )
+        EagleEyeContentService.trackPostClicked(sendgridEvent.url, platform, userContext, 'email')
+      }
       break
     }
     default:

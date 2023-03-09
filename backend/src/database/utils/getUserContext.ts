@@ -1,6 +1,7 @@
 import { IRepositoryOptions } from '../repositories/IRepositoryOptions'
 import SequelizeRepository from '../repositories/sequelizeRepository'
 import TenantRepository from '../repositories/tenantRepository'
+import UserRepository from '../repositories/userRepository'
 
 /**
  * Gets the IRepositoryOptions for given tenantId
@@ -21,7 +22,11 @@ export default async function getUserContext(
   let user = null
 
   if (userId) {
-    user = await options.database.user.findByPk(userId)
+    try {
+      user = await UserRepository.findById(userId, options)
+    } catch (error) {
+      return null
+    }
   } else {
     const tenantUsers = await tenant.getUsers()
 

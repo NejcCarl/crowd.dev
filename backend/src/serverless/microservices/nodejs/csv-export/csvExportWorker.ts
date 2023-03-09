@@ -58,8 +58,10 @@ async function csvExportWorker(
 
   switch (entity) {
     case ExportableEntity.MEMBERS: {
-      const memberService = new MemberService(userContext)
-      data = await memberService.queryForCsv(criteria)
+      if (userContext) {
+        const memberService = new MemberService(userContext)
+        data = await memberService.queryForCsv(criteria)
+      }
       break
     }
     default:
@@ -87,16 +89,22 @@ async function csvExportWorker(
   const url = await getPresignedUrl(privateObjectUrl)
   log.info({ tenantId, entity, url }, `Url generated successfully.`)
 
-  log.info({ tenantId, entity }, `Sending e-mail with pre-signed url..`)
-  const user = await UserRepository.findById(userId, userContext)
+  if (userContext) {
+    log.info({ tenantId, entity }, `Sending e-mail with pre-signed url..`)
+    const user = await UserRepository.findById(userId, userContext)
 
-  await new EmailSender(EmailSender.TEMPLATES.CSV_EXPORT, { link: url }).sendTo(user.email)
+    await new EmailSender(EmailSender.TEMPLATES.CSV_EXPORT, { link: url }).sendTo(user.email)
 
-  log.info({ tenantId, entity, email: user.email }, `CSV export e-mail with download link sent.`)
+    log.info({ tenantId, entity, email: user.email }, `CSV export e-mail with download link sent.`)
 
+    return {
+      status: 200,
+      msg: `CSV export e-mail sent!`,
+    }
+  }
   return {
-    status: 200,
-    msg: `CSV export e-mail sent!`,
+    status: 404,
+    msg: `Couldn't find tenant with tenantId ${tenantId}.`,
   }
 }
 

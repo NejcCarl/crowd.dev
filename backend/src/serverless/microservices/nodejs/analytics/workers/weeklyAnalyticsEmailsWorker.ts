@@ -48,7 +48,7 @@ async function weeklyAnalyticsEmailsWorker(tenantId: string): Promise<AnalyticsE
     }
   }
 
-  if (!userContext.currentUser) {
+  if (!userContext || !userContext.currentUser) {
     const message = `Tenant(${tenantId}) doesn't have any active users.`
     log.info(message)
     return {
@@ -194,6 +194,12 @@ async function weeklyAnalyticsEmailsWorker(tenantId: string): Promise<AnalyticsE
   }
 }
 
+/**
+ * Get analytics data for the tenant has nullable values for
+ * mostActiveMembers, mostActiveOrganizations, topActivityTypes, conversations and activeTenantIntegrations
+ *
+ * @param tenantId
+ */
 async function getAnalyticsData(tenantId: string) {
   try {
     const s3Url = `https://${
@@ -249,38 +255,40 @@ async function getAnalyticsData(tenantId: string) {
       dateTimeEndPreviousWeek,
     )
 
-    const mostActiveMembers = (
-      await userContext.database.sequelize.query(
-        `
-      select 
-        count(a.id) as "activityCount",
-        m."displayName" as name,
-        m.attributes->'avatarUrl'->>'default' as "avatarUrl"
-      from members m
-      inner join activities a on m.id = a."memberId"
-      where m."tenantId" = :tenantId
-        and a.timestamp between :startDate and :endDate
-        and coalesce(m.attributes->'isTeamMember'->>'default', 'false')::boolean is false
-        and coalesce(m.attributes->'isBot'->>'default', 'false')::boolean is false
-      group by m.id
-      order by count(a.id) desc
-      limit 5;`,
-        {
-          replacements: {
-            tenantId,
-            startDate: dateTimeStartThisWeek.toISOString(),
-            endDate: dateTimeEndThisWeek.toISOString(),
+    let mostActiveMembers = null
+    if (userContext) {
+      mostActiveMembers = (
+        await userContext.database.sequelize.query(
+          `
+                select 
+                  count(a.id) as "activityCount",
+                  m."displayName" as name,
+                  m.attributes->'avatarUrl'->>'default' as "avatarUrl"
+                from members m
+                inner join activities a on m.id = a."memberId"
+                where m."tenantId" = :tenantId
+                  and a.timestamp between :startDate and :endDate
+                  and coalesce(m.attributes->'isTeamMember'->>'default', 'false')::boolean is false
+                  and coalesce(m.attributes->'isBot'->>'default', 'false')::boolean is false
+                group by m.id
+                order by count(a.id) desc
+                limit 5;`,
+          {
+            replacements: {
+              tenantId,
+              startDate: dateTimeStartThisWeek.toISOString(),
+              endDate: dateTimeEndThisWeek.toISOString(),
+            },
+            type: QueryTypes.SELECT,
           },
-          type: QueryTypes.SELECT,
-        },
-      )
-    ).map((m) => {
-      if (!m.avatarUrl) {
-        m.avatarUrl = `${s3Url}/email/member-placeholder.png`
-      }
-      return m
-    })
-
+        )
+      ).map((m) => {
+        if (!m.avatarUrl) {
+          m.avatarUrl = `${s3Url}/email/member-placeholder.png`
+        }
+        return m
+      })
+    }
     // organizations
     const totalOrganizationsThisWeek = await CubeJsRepository.getNewOrganizations(
       cjs,
@@ -315,38 +323,41 @@ async function getAnalyticsData(tenantId: string) {
       dateTimeEndPreviousWeek,
     )
 
-    const mostActiveOrganizations = (
-      await userContext.database.sequelize.query(
-        `
-      select count(a.id) as "activityCount",
-         o.name as name,
-         o.logo as "avatarUrl"
-      from organizations o
-        inner join "memberOrganizations" mo on o.id = mo."organizationId"
-        inner join members m on mo."memberId" = m.id
-        inner join activities a on m.id = a."memberId"
-      where m."tenantId" = :tenantId
-        and a.timestamp between :startDate and :endDate
-        and coalesce(m.attributes->'isTeamMember'->>'default', 'false')::boolean is false
-        and coalesce(m.attributes->'isBot'->>'default', 'false')::boolean is false
-      group by o.id
-      order by count(a.id) desc
-      limit 5;`,
-        {
-          replacements: {
-            tenantId,
-            startDate: dateTimeStartThisWeek.toISOString(),
-            endDate: dateTimeEndThisWeek.toISOString(),
+    let mostActiveOrganizations = null
+    if (userContext) {
+      mostActiveOrganizations = (
+        await userContext.database.sequelize.query(
+          `
+                select count(a.id) as "activityCount",
+                  o.name as name,
+                  o.logo as "avatarUrl"
+                from organizations o
+                  inner join "memberOrganizations" mo on o.id = mo."organizationId"
+                  inner join members m on mo."memberId" = m.id
+                  inner join activities a on m.id = a."memberId"
+                where m."tenantId" = :tenantId
+                  and a.timestamp between :startDate and :endDate
+                  and coalesce(m.attributes->'isTeamMember'->>'default', 'false')::boolean is false
+                  and coalesce(m.attributes->'isBot'->>'default', 'false')::boolean is false
+                group by o.id
+                order by count(a.id) desc
+                limit 5;`,
+          {
+            replacements: {
+              tenantId,
+              startDate: dateTimeStartThisWeek.toISOString(),
+              endDate: dateTimeEndThisWeek.toISOString(),
+            },
+            type: QueryTypes.SELECT,
           },
-          type: QueryTypes.SELECT,
-        },
-      )
-    ).map((o) => {
-      if (!o.avatarUrl) {
-        o.avatarUrl = `${s3Url}/email/organization-placeholder.png`
-      }
-      return o
-    })
+        )
+      ).map((o) => {
+        if (!o.avatarUrl) {
+          o.avatarUrl = `${s3Url}/email/organization-placeholder.png`
+        }
+        return o
+      })
+    }
 
     // activities
     const totalActivitiesThisWeek = await CubeJsRepository.getNewActivities(
@@ -371,27 +382,30 @@ async function getAnalyticsData(tenantId: string) {
       dateTimeEndPreviousWeek,
     )
 
-    let topActivityTypes = await userContext.database.sequelize.query(
-      `
-      select sum(count(*)) OVER () as "totalCount",
-         count(*)              as count,
-         a.type,
-         a.platform
-      from activities a
-      where a."tenantId" = :tenantId
-        and a.timestamp between :startDate and :endDate
-      group by a.type, a.platform
-      order by count(*) desc
-      limit 5;`,
-      {
-        replacements: {
-          tenantId,
-          startDate: dateTimeStartThisWeek.toISOString(),
-          endDate: dateTimeEndThisWeek.toISOString(),
+    let topActivityTypes = null
+    if (userContext) {
+      topActivityTypes = await userContext.database.sequelize.query(
+        `
+            select sum(count(*)) OVER () as "totalCount",
+              count(*)              as count,
+              a.type,
+              a.platform
+            from activities a
+            where a."tenantId" = :tenantId
+              and a.timestamp between :startDate and :endDate
+            group by a.type, a.platform
+            order by count(*) desc
+            limit 5;`,
+        {
+          replacements: {
+            tenantId,
+            startDate: dateTimeStartThisWeek.toISOString(),
+            endDate: dateTimeEndThisWeek.toISOString(),
+          },
+          type: QueryTypes.SELECT,
         },
-        type: QueryTypes.SELECT,
-      },
-    )
+      )
+    }
 
     topActivityTypes = topActivityTypes.map((a) => {
       const prettyName: string = prettyActivityTypes[a.platform][a.type]
@@ -401,89 +415,96 @@ async function getAnalyticsData(tenantId: string) {
       return a
     })
 
-    // conversations
-    const cs = new ConversationService(userContext)
+    let conversations = null
+    if (userContext) {
+      // conversations
+      const cs = new ConversationService(userContext)
 
-    const conversations = await Promise.all(
-      (
-        await userContext.database.sequelize.query(
-          `
-      select
-          c.id
-      from conversations c
-          join activities a on a."conversationId" = c.id
-      where a."tenantId" = :tenantId
-        and a.timestamp between :startDate and :endDate
-      group by c.id
-      order by count(a.id) desc
-      limit 5;`,
-          {
-            replacements: {
-              tenantId,
-              startDate: dateTimeStartThisWeek.toISOString(),
-              endDate: dateTimeEndThisWeek.toISOString(),
+      conversations = await Promise.all(
+        (
+          await userContext.database.sequelize.query(
+            `
+                select
+                  c.id
+                from conversations c
+                  join activities a on a."conversationId" = c.id
+                where a."tenantId" = :tenantId
+                  and a.timestamp between :startDate and :endDate
+                group by c.id
+                order by count(a.id) desc
+                limit 5;`,
+            {
+              replacements: {
+                tenantId,
+                startDate: dateTimeStartThisWeek.toISOString(),
+                endDate: dateTimeEndThisWeek.toISOString(),
+              },
+              type: QueryTypes.SELECT,
             },
-            type: QueryTypes.SELECT,
+          )
+        ).map(async (c) => {
+          const conversationLazyLoaded = await cs.findById(c.id)
+
+          const conversationStarterActivity = conversationLazyLoaded.activities[0]
+
+          c.conversationStartedFromNow = moment(conversationStarterActivity.timestamp).fromNow()
+
+          const replyActivities = conversationLazyLoaded.activities.slice(1)
+
+          c.replyCount = replyActivities.length
+
+          c.memberCount = await ConversationRepository.getTotalMemberCount(replyActivities)
+
+          c.platform = conversationStarterActivity.platform
+
+          c.body = conversationStarterActivity.title
+            ? convertHtmlToText(conversationStarterActivity.title)
+            : convertHtmlToText(conversationStarterActivity.body)
+
+          c.platformIcon = `${s3Url}/email/${conversationStarterActivity.platform}.png`
+
+          let prettyChannel = conversationStarterActivity.channel
+
+          let prettyChannelHTML = `<span style='text-decoration:none;color:#4B5563'>${prettyChannel}</span>`
+
+          if (conversationStarterActivity.platform === PlatformType.GITHUB) {
+            const prettyChannelSplitted = prettyChannel.split('/')
+            prettyChannel = prettyChannelSplitted[prettyChannelSplitted.length - 1]
+            prettyChannelHTML = `<span style='color:#e94f2e'><a target="_blank" style="-webkit-text-size-adjust:none;-ms-text-size-adjust:none;mso-line-height-rule:exactly;text-decoration:none;color:#e94f2e;font-size:14px;line-height:14px" href="${conversationStarterActivity.channel}">${prettyChannel}</a></span>`
+          }
+
+          c.description = `${
+            prettyActivityTypes[conversationStarterActivity.platform][
+              conversationStarterActivity.type
+            ]
+          } in ${prettyChannelHTML}`
+
+          c.sourceLink = conversationStarterActivity.url
+
+          c.member =
+            conversationStarterActivity.member.username[conversationStarterActivity.platform]
+
+          return c
+        }),
+      )
+    }
+
+    let activeTenantIntegrations = null
+    if (userContext) {
+      activeTenantIntegrations = await userContext.database.sequelize.query(
+        `
+            select * from integrations i
+            where i."tenantId" = :tenantId
+            and i.status = 'done'
+            limit 1;`,
+        {
+          replacements: {
+            tenantId,
           },
-        )
-      ).map(async (c) => {
-        const conversationLazyLoaded = await cs.findById(c.id)
-
-        const conversationStarterActivity = conversationLazyLoaded.activities[0]
-
-        c.conversationStartedFromNow = moment(conversationStarterActivity.timestamp).fromNow()
-
-        const replyActivities = conversationLazyLoaded.activities.slice(1)
-
-        c.replyCount = replyActivities.length
-
-        c.memberCount = await ConversationRepository.getTotalMemberCount(replyActivities)
-
-        c.platform = conversationStarterActivity.platform
-
-        c.body = conversationStarterActivity.title
-          ? convertHtmlToText(conversationStarterActivity.title)
-          : convertHtmlToText(conversationStarterActivity.body)
-
-        c.platformIcon = `${s3Url}/email/${conversationStarterActivity.platform}.png`
-
-        let prettyChannel = conversationStarterActivity.channel
-
-        let prettyChannelHTML = `<span style='text-decoration:none;color:#4B5563'>${prettyChannel}</span>`
-
-        if (conversationStarterActivity.platform === PlatformType.GITHUB) {
-          const prettyChannelSplitted = prettyChannel.split('/')
-          prettyChannel = prettyChannelSplitted[prettyChannelSplitted.length - 1]
-          prettyChannelHTML = `<span style='color:#e94f2e'><a target="_blank" style="-webkit-text-size-adjust:none;-ms-text-size-adjust:none;mso-line-height-rule:exactly;text-decoration:none;color:#e94f2e;font-size:14px;line-height:14px" href="${conversationStarterActivity.channel}">${prettyChannel}</a></span>`
-        }
-
-        c.description = `${
-          prettyActivityTypes[conversationStarterActivity.platform][
-            conversationStarterActivity.type
-          ]
-        } in ${prettyChannelHTML}`
-
-        c.sourceLink = conversationStarterActivity.url
-
-        c.member = conversationStarterActivity.member.username[conversationStarterActivity.platform]
-
-        return c
-      }),
-    )
-
-    const activeTenantIntegrations = await userContext.database.sequelize.query(
-      `
-        select * from integrations i
-        where i."tenantId" = :tenantId
-        and i.status = 'done'
-        limit 1;`,
-      {
-        replacements: {
-          tenantId,
+          type: QueryTypes.SELECT,
         },
-        type: QueryTypes.SELECT,
-      },
-    )
+      )
+    }
 
     return {
       shouldRetry: false,

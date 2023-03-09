@@ -11,29 +11,31 @@ export default async () => {
   // for each tenant
   for (const tenant of tenants.rows) {
     const userContext = await getUserContext(tenant.id)
-    const as = new ActivityService(userContext)
+    if (userContext) {
+      const as = new ActivityService(userContext)
 
-    const githubActs = await as.findAndCountAll({
-      filter: { platform: PlatformType.GITHUB },
-      orderBy: 'timestamp_ASC',
-    })
+      const githubActs = await as.findAndCountAll({
+        filter: { platform: PlatformType.GITHUB },
+        orderBy: 'timestamp_ASC',
+      })
 
-    githubActs.rows = githubActs.rows.filter(
-      (i) =>
-        i.type === GithubActivityType.PULL_REQUEST_COMMENT ||
-        i.type === GithubActivityType.ISSUE_COMMENT,
-    )
+      githubActs.rows = githubActs.rows.filter(
+        (i) =>
+          i.type === GithubActivityType.PULL_REQUEST_COMMENT ||
+          i.type === GithubActivityType.ISSUE_COMMENT,
+      )
 
-    for (const githubActivity of githubActs.rows) {
-      if (githubActivity.parentId && githubActivity.conversationId === null) {
-        // get parent activity
-        const parentAct = await as.findById(githubActivity.parentId)
+      for (const githubActivity of githubActs.rows) {
+        if (githubActivity.parentId && githubActivity.conversationId === null) {
+          // get parent activity
+          const parentAct = await as.findById(githubActivity.parentId)
 
-        const transaction = await SequelizeRepository.createTransaction(userContext)
+          const transaction = await SequelizeRepository.createTransaction(userContext)
 
-        await as.addToConversation(githubActivity.id, parentAct.id, transaction)
+          await as.addToConversation(githubActivity.id, parentAct.id, transaction)
 
-        await SequelizeRepository.commitTransaction(transaction)
+          await SequelizeRepository.commitTransaction(transaction)
+        }
       }
     }
   }

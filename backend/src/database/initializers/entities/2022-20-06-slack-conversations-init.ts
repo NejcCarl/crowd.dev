@@ -10,23 +10,25 @@ export default async () => {
   // for each tenant
   for (const tenant of tenants.rows) {
     const userContext = await getUserContext(tenant.id)
-    const as = new ActivityService(userContext)
+    if (userContext) {
+      const as = new ActivityService(userContext)
 
-    const slackActs = await as.findAndCountAll({
-      filter: { platform: PlatformType.SLACK, type: 'message' },
-      orderBy: 'timestamp_ASC',
-    })
+      const slackActs = await as.findAndCountAll({
+        filter: { platform: PlatformType.SLACK, type: 'message' },
+        orderBy: 'timestamp_ASC',
+      })
 
-    for (const slackActivity of slackActs.rows) {
-      if (slackActivity.parentId && slackActivity.conversationId === null) {
-        // get parent activity
-        const parentAct = await as.findById(slackActivity.parentId)
+      for (const slackActivity of slackActs.rows) {
+        if (slackActivity.parentId && slackActivity.conversationId === null) {
+          // get parent activity
+          const parentAct = await as.findById(slackActivity.parentId)
 
-        const transaction = await SequelizeRepository.createTransaction(userContext)
+          const transaction = await SequelizeRepository.createTransaction(userContext)
 
-        await as.addToConversation(slackActivity.id, parentAct.id, transaction)
+          await as.addToConversation(slackActivity.id, parentAct.id, transaction)
 
-        await SequelizeRepository.commitTransaction(transaction)
+          await SequelizeRepository.commitTransaction(transaction)
+        }
       }
     }
   }
