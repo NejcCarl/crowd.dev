@@ -123,7 +123,7 @@ class TenantRepository {
     return cleanedTenantUrl
   }
 
-  static async update(id, data, options: IRepositoryOptions) {
+  static async update(id, data, options: IRepositoryOptions, force = false) {
     await this._bustCacheForTenant(id)
     const currentUser = SequelizeRepository.getCurrentUser(options)
 
@@ -133,7 +133,7 @@ class TenantRepository {
       transaction,
     })
 
-    if (!isUserInTenant(currentUser, record)) {
+    if (!force && !isUserInTenant(currentUser, record)) {
       throw new Error404()
     }
 
@@ -168,9 +168,9 @@ class TenantRepository {
           'onboardedAt',
           'hasSampleData',
           'importHash',
+          'plan',
           'isTrialPlan',
           'trialEndsAt',
-          'plan',
         ]),
         updatedById: currentUser.id,
       },
