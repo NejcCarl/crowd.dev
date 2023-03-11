@@ -527,7 +527,8 @@ export default class UserRepository {
     const userCache = await this.getUserCache()
     const cachedUser = JSON.parse(await userCache.getValue(id))
     if (cachedUser) {
-      return cachedUser
+      const hydratedUser = await options.database.user.build(cachedUser)
+      return hydratedUser
     }
 
     const transaction = SequelizeRepository.getTransaction(options)

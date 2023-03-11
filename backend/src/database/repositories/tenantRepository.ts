@@ -270,7 +270,8 @@ class TenantRepository {
     const tenantCache = await this.getTenantCache()
     const cachedTenant = JSON.parse(await tenantCache.getValue(id))
     if (cachedTenant) {
-      return cachedTenant
+      const hydratedTenant = await options.database.tenant.build(cachedTenant)
+      return hydratedTenant
     }
 
     const transaction = SequelizeRepository.getTransaction(options)
