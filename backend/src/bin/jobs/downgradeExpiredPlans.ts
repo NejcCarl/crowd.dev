@@ -3,6 +3,7 @@ import SequelizeRepository from '../../database/repositories/sequelizeRepository
 import Plans from '../../security/plans'
 import { CrowdJob } from '../../types/jobTypes'
 import { createServiceChildLogger } from '../../utils/logging'
+import TenantRepository from '../../database/repositories/tenantRepository'
 
 const log = createServiceChildLogger('downgradeExpiredPlansCronJob')
 
@@ -20,9 +21,10 @@ const job: CrowdJob = {
     )
 
     for (const tenant of expiredTrialTenants[0]) {
-      await dbOptions.database.tenant.update(
+      await TenantRepository.update(
+        tenant.id,
         { isTrialPlan: false, trialEndsAt: null, plan: Plans.values.essential },
-        { returning: true, raw: true, where: { id: tenant.id } },
+        dbOptions,
       )
     }
 
@@ -33,10 +35,7 @@ const job: CrowdJob = {
     )
 
     for (const tenant of expiredNonTrialTenants[0]) {
-      await dbOptions.database.tenant.update(
-        { plan: Plans.values.essential },
-        { returning: true, raw: true, where: { id: tenant.id } },
-      )
+      await TenantRepository.update(tenant.id, { plan: Plans.values.essential }, dbOptions)
     }
   },
 }

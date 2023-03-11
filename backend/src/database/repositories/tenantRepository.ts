@@ -64,6 +64,9 @@ class TenantRepository {
           'reasonForUsingCrowd',
           'integrationsRequired',
           'importHash',
+          'isTrialPlan',
+          'trialEndsAt',
+          'plan',
         ]),
         plan: 'Growth',
         isTrialPlan: true,
@@ -425,6 +428,13 @@ class TenantRepository {
       id: record.id,
       label: record.name,
     }))
+  }
+
+  static async findTenantByStripeSubscriptionId(stripeSubscriptionId, options: IRepositoryOptions) {
+    const tenant = await options.database.tenant.findOne({
+      where: { stripeSubscriptionId },
+    })
+    return tenant
   }
 
   static async _bustCacheForTenant(id): Promise<void> {
