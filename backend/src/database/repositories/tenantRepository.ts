@@ -9,12 +9,23 @@ import Error400 from '../../errors/Error400'
 import { isUserInTenant } from '../utils/userTenantUtils'
 import { IRepositoryOptions } from './IRepositoryOptions'
 import getCleanString from '../../utils/getCleanString'
+import { createRedisClient, RedisClient } from '../../utils/redis'
+import { RedisCache } from '../../utils/redis/redisCache'
 
 const { Op } = Sequelize
 
 const forbiddenTenantUrls = ['www']
 
 class TenantRepository {
+  static _tenantCache: RedisCache
+
+  static async getTenantCache(): Promise<RedisCache> {
+    if (this._tenantCache) {
+      return this._tenantCache
+    }
+    return new RedisCache(`tenant`, await createRedisClient(true))
+  }
+
   static async create(data, options: IRepositoryOptions) {
     const currentUser = SequelizeRepository.getCurrentUser(options)
 
@@ -48,6 +59,9 @@ class TenantRepository {
           'reasonForUsingCrowd',
           'integrationsRequired',
           'importHash',
+          'isTrialPlan',
+          'trialEndsAt',
+          'plan',
         ]),
         plan: 'Growth',
         isTrialPlan: true,
@@ -109,6 +123,7 @@ class TenantRepository {
   }
 
   static async update(id, data, options: IRepositoryOptions, force = false) {
+    await this._bustCacheForTenant(id)
     const currentUser = SequelizeRepository.getCurrentUser(options)
 
     const transaction = SequelizeRepository.getTransaction(options)
@@ -170,6 +185,7 @@ class TenantRepository {
   }
 
   static async updatePlanUser(id, planStripeCustomerId, planUserId, options: IRepositoryOptions) {
+    await this._bustCacheForTenant(id)
     const currentUser = SequelizeRepository.getCurrentUser(options)
 
     const transaction = SequelizeRepository.getTransaction(options)
@@ -199,6 +215,7 @@ class TenantRepository {
     planStatus,
     options: IRepositoryOptions,
   ) {
+    await this._bustCacheForTenant(planStripeCustomerId)
     const transaction = SequelizeRepository.getTransaction(options)
 
     let record = await options.database.tenant.findOne({
@@ -224,6 +241,7 @@ class TenantRepository {
   }
 
   static async destroy(id, options: IRepositoryOptions) {
+    await this._bustCacheForTenant(id)
     const transaction = SequelizeRepository.getTransaction(options)
 
     const currentUser = SequelizeRepository.getCurrentUser(options)
@@ -244,6 +262,18 @@ class TenantRepository {
   }
 
   static async findById(id, options: IRepositoryOptions) {
+    const tenantCache = await this.getTenantCache()
+    let redisValue = null
+    try {
+      redisValue = await tenantCache.getValue(id)
+      if (redisValue) {
+        const hydratedTenant = await options.database.tenant.build(JSON.parse(redisValue))
+        return hydratedTenant
+      }
+    } catch (error) {
+      // do nothing
+    }
+
     const transaction = SequelizeRepository.getTransaction(options)
 
     const include = ['settings', 'conversationSettings']
@@ -252,6 +282,8 @@ class TenantRepository {
       include,
       transaction,
     })
+
+    await tenantCache.setValue(id, JSON.stringify(record), 7200)
 
     return record
   }
@@ -397,6 +429,11 @@ class TenantRepository {
       id: record.id,
       label: record.name,
     }))
+  }
+
+  static async _bustCacheForTenant(id): Promise<void> {
+    const tenantCache = await this.getTenantCache()
+    await tenantCache.delete(id)
   }
 
   static async _createAuditLog(action, record, data, options: IRepositoryOptions) {
