@@ -171,6 +171,8 @@ class TenantRepository {
           'plan',
           'isTrialPlan',
           'trialEndsAt',
+          'stripeSubscriptionId',
+          'planSubscriptionEndsAt',
         ]),
         updatedById: currentUser.id,
       },

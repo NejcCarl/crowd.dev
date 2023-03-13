@@ -8,7 +8,7 @@ import Error404 from '../../errors/Error404'
 import { isUserInTenant } from '../utils/userTenantUtils'
 import { IRepositoryOptions } from './IRepositoryOptions'
 import SequelizeArrayUtils from '../utils/sequelizeArrayUtils'
-import { createRedisClient, RedisClient } from '../../utils/redis'
+import { createRedisClient } from '../../utils/redis'
 import { RedisCache } from '../../utils/redis/redisCache'
 
 const { Op } = Sequelize
@@ -150,6 +150,7 @@ export default class UserRepository {
       transaction,
     })
 
+    await this._bustCacheForUser(user.id)
     await user.update(
       {
         firstName: data.firstName || null,
@@ -199,6 +200,7 @@ export default class UserRepository {
       data.jwtTokenInvalidBefore = new Date()
     }
 
+    await this._bustCacheForUser(user.id)
     await user.update(data, { transaction })
 
     await AuditLogRepository.log(
@@ -232,6 +234,7 @@ export default class UserRepository {
     const emailVerificationToken = crypto.randomBytes(20).toString('hex')
     const emailVerificationTokenExpiresAt = Date.now() + 24 * 60 * 60 * 1000
 
+    await this._bustCacheForUser(user.id)
     await user.update(
       {
         emailVerificationToken,
@@ -271,6 +274,7 @@ export default class UserRepository {
     const passwordResetToken = crypto.randomBytes(20).toString('hex')
     const passwordResetTokenExpiresAt = Date.now() + 24 * 60 * 60 * 1000
 
+    await this._bustCacheForUser(user.id)
     await user.update(
       {
         passwordResetToken,
@@ -308,6 +312,7 @@ export default class UserRepository {
       transaction,
     })
 
+    await this._bustCacheForUser(id)
     await user.update(
       {
         firstName: data.firstName || null,
@@ -620,6 +625,7 @@ export default class UserRepository {
       transaction,
     })
 
+    await this._bustCacheForUser(user.id)
     await user.update(
       {
         emailVerified: true,

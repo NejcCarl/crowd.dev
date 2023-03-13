@@ -11,6 +11,7 @@ import RedisPubSubEmitter from '../../../utils/redis/pubSubEmitter'
 import { timeout } from '../../../utils/timing'
 import { NodeWorkerMessageType } from '../../types/workerTypes'
 import { sendNodeWorkerMessage } from '../../utils/nodeWorkerSQS'
+import TenantRepository from '../../../database/repositories/tenantRepository'
 
 const log = createServiceChildLogger('stripeWebhookWorker')
 
@@ -76,13 +77,17 @@ export const processStripeWebhook = async (message: any) => {
         process.exit(1)
       } else {
         log.info({ tenantId }, `Tenant found - updating tenant plan to Growth plan!`)
-        await tenant.update({
-          plan: Plans.values.growth,
-          isTrialPlan: false,
-          trialEndsAt: null,
-          stripeSubscriptionId: stripeWebhookMessage.data.object.subscription,
-          planSubscriptionEndsAt: moment(subscriptionEndsAt, 'X').toISOString(),
-        })
+        await TenantRepository.update(
+          tenantId,
+          {
+            plan: Plans.values.growth,
+            isTrialPlan: false,
+            trialEndsAt: null,
+            stripeSubscriptionId: stripeWebhookMessage.data.object.subscription,
+            planSubscriptionEndsAt: moment(subscriptionEndsAt, 'X').toISOString(),
+          },
+          options,
+        )
 
         log.info('Emitting to redis pubsub for websocket forwarding from api..')
 
@@ -123,9 +128,13 @@ export const processStripeWebhook = async (message: any) => {
           stripeWebhookMessage.data.object.subscription,
         )
 
-        await tenant.update({
-          planSubscriptionEndsAt: moment(subscription.current_period_end, 'X').toISOString(),
-        })
+        await TenantRepository.update(
+          tenant.id,
+          {
+            planSubscriptionEndsAt: moment(subscription.current_period_end, 'X').toISOString(),
+          },
+          options,
+        )
       }
 
       break
