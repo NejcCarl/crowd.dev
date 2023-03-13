@@ -150,14 +150,15 @@ export default class UserRepository {
       transaction,
     })
 
-    await user.update(
+    await this.update(
+      user.id,
       {
         firstName: data.firstName || null,
         lastName: data.lastName || null,
         phoneNumber: data.phoneNumber || null,
         updatedById: currentUser.id,
       },
-      { transaction },
+      options,
     )
 
     await AuditLogRepository.log(
@@ -199,7 +200,7 @@ export default class UserRepository {
       data.jwtTokenInvalidBefore = new Date()
     }
 
-    await user.update(data, { transaction })
+    await this.update(user.id, data, options)
 
     await AuditLogRepository.log(
       {
@@ -232,13 +233,14 @@ export default class UserRepository {
     const emailVerificationToken = crypto.randomBytes(20).toString('hex')
     const emailVerificationTokenExpiresAt = Date.now() + 24 * 60 * 60 * 1000
 
-    await user.update(
+    await this.update(
+      user.id,
       {
         emailVerificationToken,
         emailVerificationTokenExpiresAt,
         updatedById: currentUser.id,
       },
-      { transaction },
+      options,
     )
 
     await AuditLogRepository.log(
@@ -271,13 +273,14 @@ export default class UserRepository {
     const passwordResetToken = crypto.randomBytes(20).toString('hex')
     const passwordResetTokenExpiresAt = Date.now() + 24 * 60 * 60 * 1000
 
-    await user.update(
+    await this.update(
+      user.id,
       {
         passwordResetToken,
         passwordResetTokenExpiresAt,
         updatedById: currentUser.id,
       },
-      { transaction },
+      options,
     )
 
     await AuditLogRepository.log(
@@ -308,14 +311,15 @@ export default class UserRepository {
       transaction,
     })
 
-    await user.update(
+    await UserRepository.update(
+      user.id,
       {
         firstName: data.firstName || null,
         lastName: data.lastName || null,
         phoneNumber: data.phoneNumber || null,
         updatedById: currentUser.id,
       },
-      { transaction },
+      options,
     )
 
     await AuditLogRepository.log(
@@ -620,12 +624,13 @@ export default class UserRepository {
       transaction,
     })
 
-    await user.update(
+    await this.update(
+      user.id,
       {
         emailVerified: true,
         updatedById: currentUser.id,
       },
-      { transaction },
+      options,
     )
 
     await AuditLogRepository.log(

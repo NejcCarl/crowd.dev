@@ -2,6 +2,7 @@ import crypto from 'crypto'
 import SequelizeRepository from './sequelizeRepository'
 import AuditLogRepository from './auditLogRepository'
 import { IRepositoryOptions } from './IRepositoryOptions'
+import UserRepository from './userRepository'
 
 export default class TenantUserRepository {
   static async findByTenant(tenantId: string, options: IRepositoryOptions): Promise<any[]> {
@@ -249,11 +250,12 @@ export default class TenantUserRepository {
 
     const emailVerified = currentUser.emailVerified || isSameEmailFromInvitation
 
-    await options.database.user.update(
+    await UserRepository.update(
+      currentUser.id,
       {
         emailVerified,
       },
-      { where: { id: currentUser.id }, transaction },
+      options,
     )
 
     const auditLogRoles = existingTenantUser ? existingTenantUser.roles : invitationTenantUser.roles
