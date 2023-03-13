@@ -4,6 +4,7 @@ import * as fs from 'fs'
 import path from 'path'
 import { createServiceLogger } from '../../utils/logging'
 import SequelizeRepository from '../../database/repositories/sequelizeRepository'
+import TenantRepository from '../../database/repositories/tenantRepository'
 
 const banner = fs.readFileSync(path.join(__dirname, 'banner.txt'), 'utf8')
 
@@ -77,11 +78,15 @@ if (parameters.help || !parameters.tenant || !parameters.plan) {
         process.exit(1)
       } else {
         log.info({ tenantId, isTrial }, `Tenant found - updating tenant plan to ${plan}!`)
-        await tenant.update({
-          plan,
-          isTrialPlan: isTrial,
-          trialEndsAt,
-        })
+        await TenantRepository.update(
+          tenantId,
+          {
+            plan,
+            isTrialPlan: isTrial,
+            trialEndsAt,
+          },
+          options,
+        )
       }
     }
 
