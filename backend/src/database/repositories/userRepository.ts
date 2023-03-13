@@ -16,16 +16,11 @@ const { Op } = Sequelize
 export default class UserRepository {
   static _userCache: RedisCache
 
-  static _redisClient: RedisClient
-
   static async getUserCache(): Promise<RedisCache> {
     if (this._userCache) {
       return this._userCache
     }
-    if (!this._redisClient) {
-      this._redisClient = await createRedisClient(true)
-    }
-    return new RedisCache(`user`, this._redisClient)
+    return new RedisCache(`user`, await createRedisClient(true))
   }
 
   /**
@@ -525,10 +520,15 @@ export default class UserRepository {
 
   static async findById(id, options: IRepositoryOptions) {
     const userCache = await this.getUserCache()
-    const cachedUser = JSON.parse(await userCache.getValue(id))
-    if (cachedUser) {
-      const hydratedUser = await options.database.user.build(cachedUser)
-      return hydratedUser
+    let redisValue = null
+    try {
+      redisValue = await userCache.getValue(id)
+      if (redisValue) {
+        const hydratedUser = await options.database.user.build(JSON.parse(redisValue))
+        return hydratedUser
+      }
+    } catch (error) {
+      // do nothing
     }
 
     const transaction = SequelizeRepository.getTransaction(options)

@@ -19,16 +19,11 @@ const forbiddenTenantUrls = ['www']
 class TenantRepository {
   static _tenantCache: RedisCache
 
-  static _redisClient: RedisClient
-
   static async getTenantCache(): Promise<RedisCache> {
     if (this._tenantCache) {
       return this._tenantCache
     }
-    if (!this._redisClient) {
-      this._redisClient = await createRedisClient(true)
-    }
-    return new RedisCache(`tenant`, this._redisClient)
+    return new RedisCache(`tenant`, await createRedisClient(true))
   }
 
   static async create(data, options: IRepositoryOptions) {
@@ -268,10 +263,15 @@ class TenantRepository {
 
   static async findById(id, options: IRepositoryOptions) {
     const tenantCache = await this.getTenantCache()
-    const cachedTenant = JSON.parse(await tenantCache.getValue(id))
-    if (cachedTenant) {
-      const hydratedTenant = await options.database.tenant.build(cachedTenant)
-      return hydratedTenant
+    let redisValue = null
+    try {
+      redisValue = await tenantCache.getValue(id)
+      if (redisValue) {
+        const hydratedTenant = await options.database.tenant.build(JSON.parse(redisValue))
+        return hydratedTenant
+      }
+    } catch (error) {
+      // do nothing
     }
 
     const transaction = SequelizeRepository.getTransaction(options)
