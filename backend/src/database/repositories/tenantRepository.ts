@@ -431,13 +431,6 @@ class TenantRepository {
     }))
   }
 
-  static async findTenantByStripeSubscriptionId(stripeSubscriptionId, options: IRepositoryOptions) {
-    const tenant = await options.database.tenant.findOne({
-      where: { stripeSubscriptionId },
-    })
-    return tenant
-  }
-
   static async _bustCacheForTenant(id): Promise<void> {
     const tenantCache = await this.getTenantCache()
     await tenantCache.delete(id)
