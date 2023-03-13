@@ -9,7 +9,7 @@ import Error400 from '../../errors/Error400'
 import { isUserInTenant } from '../utils/userTenantUtils'
 import { IRepositoryOptions } from './IRepositoryOptions'
 import getCleanString from '../../utils/getCleanString'
-import { createRedisClient, RedisClient } from '../../utils/redis'
+import { createRedisClient } from '../../utils/redis'
 import { RedisCache } from '../../utils/redis/redisCache'
 
 const { Op } = Sequelize
