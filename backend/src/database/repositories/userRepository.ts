@@ -525,11 +525,19 @@ export default class UserRepository {
 
   static async findById(id, options: IRepositoryOptions) {
     const userCache = await this.getUserCache()
-    let redisValue = null
+
+    let rawRedisValue = null
     try {
-      redisValue = await userCache.getValue(id)
-      if (redisValue) {
-        const hydratedUser = await options.database.user.build(JSON.parse(redisValue))
+      rawRedisValue = await userCache.getValue(id)
+      if (rawRedisValue) {
+        const redisValue = JSON.parse(rawRedisValue)
+        const hydratedUser = await options.database.user.build(redisValue)
+        require('../utils/hydrateModelAssociations').default(
+          options,
+          redisValue,
+          hydratedUser,
+          'user',
+        )
         return hydratedUser
       }
     } catch (error) {

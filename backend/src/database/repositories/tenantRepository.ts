@@ -265,11 +265,19 @@ class TenantRepository {
 
   static async findById(id, options: IRepositoryOptions) {
     const tenantCache = await this.getTenantCache()
-    let redisValue = null
+    let rawRedisValue = null
     try {
-      redisValue = await tenantCache.getValue(id)
-      if (redisValue) {
-        const hydratedTenant = await options.database.tenant.build(JSON.parse(redisValue))
+      rawRedisValue = await tenantCache.getValue(id)
+      if (rawRedisValue) {
+        const redisValue = JSON.parse(rawRedisValue)
+        const hydratedTenant = await options.database.tenant.build(redisValue)
+
+        require('../utils/hydrateModelAssociations').default(
+          options,
+          redisValue,
+          hydratedTenant,
+          'tenant',
+        )
         return hydratedTenant
       }
     } catch (error) {
