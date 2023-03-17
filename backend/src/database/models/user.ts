@@ -1,3 +1,5 @@
+import { hydrateTenantWithTenantModelAssociations } from './tenant'
+
 export default (sequelize, DataTypes) => {
   const user = sequelize.define(
     'user',
@@ -178,4 +180,28 @@ function trimStringFields(user) {
   user.lastName = user.lastName ? user.lastName.trim() : null
 
   return user
+}
+
+export const _hydrateUserModelAssociations = (
+  options,
+  redisValue: Record<string, any>,
+  hydratedUser,
+) => {
+  redisValue.tenants = redisValue.tenants || []
+  // tenants is of type tenantUser[]
+  hydratedUser.tenants = redisValue.tenants.reduce((accumulator, currentValue, index) => {
+    const tenantUser = options.database.tenantUser.build(currentValue)
+    const redisValueTenant = redisValue.tenants[index].tenant
+    if (redisValueTenant) {
+      tenantUser.tenant = hydrateTenantWithTenantModelAssociations(options, redisValueTenant)
+    }
+    accumulator.push(tenantUser)
+    return accumulator
+  }, [])
+
+  return hydratedUser
+}
+export const hydrateUserWithUserModelAssociations = (options, redisValue: Record<string, any>) => {
+  const hydratedUser = options.database.user.build(redisValue)
+  return _hydrateUserModelAssociations(options, redisValue, hydratedUser)
 }

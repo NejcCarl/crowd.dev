@@ -88,7 +88,6 @@ export const processStripeWebhook = async (message: any) => {
         process.exit(1)
       } else {
         log.info({ tenantId }, `Tenant found - updating tenant plan to ${productPlan} plan!`)
-        // TODO now fix
         await TenantRepository.update(
           tenantId,
           {

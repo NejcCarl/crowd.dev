@@ -275,7 +275,7 @@ export default class TenantService {
         transaction,
         currentTenant: { id },
       })
-
+      console.log({ tenant: record })
       if (data.hasSampleData === undefined) {
         data.hasSampleData = record.hasSampleData
       }

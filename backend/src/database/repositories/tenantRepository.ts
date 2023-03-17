@@ -9,25 +9,19 @@ import Error400 from '../../errors/Error400'
 import { isUserInTenant } from '../utils/userTenantUtils'
 import { IRepositoryOptions } from './IRepositoryOptions'
 import getCleanString from '../../utils/getCleanString'
-import { createRedisClient } from '../../utils/redis'
-import { RedisCache } from '../../utils/redis/redisCache'
+import { hydrateTenantWithTenantModelAssociations } from '../models/tenant'
+import CacheBust from './cacheBust'
+import CacheTenant from './cacheTenant'
 
 const { Op } = Sequelize
 
 const forbiddenTenantUrls = ['www']
 
 class TenantRepository {
-  static _tenantCache: RedisCache
-
-  static async getTenantCache(): Promise<RedisCache> {
-    if (this._tenantCache) {
-      return this._tenantCache
-    }
-    return new RedisCache(`tenant`, await createRedisClient(true))
-  }
-
   static async create(data, options: IRepositoryOptions) {
     const currentUser = SequelizeRepository.getCurrentUser(options)
+    // bust cache for current user due to it getting a new tenant
+    CacheBust.bustCacheForUserAndAssociatedTenants(currentUser)
 
     const transaction = SequelizeRepository.getTransaction(options)
 
@@ -123,7 +117,6 @@ class TenantRepository {
   }
 
   static async update(id, data, options: IRepositoryOptions, force = false) {
-    await this._bustCacheForTenant(id)
     const currentUser = SequelizeRepository.getCurrentUser(options)
 
     const transaction = SequelizeRepository.getTransaction(options)
@@ -155,6 +148,7 @@ class TenantRepository {
     if (forbiddenTenantUrls.includes(data.url) || existsUrl) {
       throw new Error400(options.language, 'tenant.url.exists')
     }
+    await CacheBust.bustCacheForTenantAndAssociatedUsers({ ...data, id })
 
     record = await record.update(
       {
@@ -186,8 +180,12 @@ class TenantRepository {
     return this.findById(record.id, options)
   }
 
+  // static pickTenantData(data) {
+  //   return
+  // }
+
   static async updatePlanUser(id, planStripeCustomerId, planUserId, options: IRepositoryOptions) {
-    await this._bustCacheForTenant(id)
+    await CacheBust.bustCacheForTenantAndAssociatedUsers(id)
     const currentUser = SequelizeRepository.getCurrentUser(options)
 
     const transaction = SequelizeRepository.getTransaction(options)
@@ -217,7 +215,7 @@ class TenantRepository {
     planStatus,
     options: IRepositoryOptions,
   ) {
-    await this._bustCacheForTenant(planStripeCustomerId)
+    await CacheBust.bustCacheForTenantAndAssociatedUsers(planStripeCustomerId)
     const transaction = SequelizeRepository.getTransaction(options)
 
     let record = await options.database.tenant.findOne({
@@ -243,7 +241,7 @@ class TenantRepository {
   }
 
   static async destroy(id, options: IRepositoryOptions) {
-    await this._bustCacheForTenant(id)
+    await CacheBust.bustCacheForTenantAndAssociatedUsers(id)
     const transaction = SequelizeRepository.getTransaction(options)
 
     const currentUser = SequelizeRepository.getCurrentUser(options)
@@ -264,23 +262,23 @@ class TenantRepository {
   }
 
   static async findById(id, options: IRepositoryOptions) {
-    const tenantCache = await this.getTenantCache()
+    const tenantCache = await CacheTenant.getTenantCache()
     let rawRedisValue = null
     try {
       rawRedisValue = await tenantCache.getValue(id)
       if (rawRedisValue) {
         const redisValue = JSON.parse(rawRedisValue)
-        const hydratedTenant = await options.database.tenant.build(redisValue)
-
-        require('../utils/hydrateModelAssociations').default(
-          options,
-          redisValue,
-          hydratedTenant,
-          'tenant',
-        )
+        const hydratedTenant = hydrateTenantWithTenantModelAssociations(options, redisValue)
+        // require('../utils/hydrateModelAssociations').default(
+        //   options,
+        //   redisValue,
+        //   hydratedTenant,
+        //   'tenant',
+        // )
         return hydratedTenant
       }
     } catch (error) {
+      console.log({ error })
       // do nothing
     }
 
@@ -439,11 +437,6 @@ class TenantRepository {
       id: record.id,
       label: record.name,
     }))
-  }
-
-  static async _bustCacheForTenant(id): Promise<void> {
-    const tenantCache = await this.getTenantCache()
-    await tenantCache.delete(id)
   }
 
   static async _createAuditLog(action, record, data, options: IRepositoryOptions) {

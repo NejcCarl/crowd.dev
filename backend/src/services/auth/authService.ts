@@ -340,7 +340,10 @@ class AuthService {
 
             resolve(user)
           })
-          .catch((error) => reject(error))
+          .catch((error) => {
+            console.log(`_______________jow jow  jow_______________`)
+            return reject(error)
+          })
       })
     })
   }

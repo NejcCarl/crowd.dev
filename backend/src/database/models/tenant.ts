@@ -117,3 +117,37 @@ export default (sequelize, DataTypes) => {
 
   return tenant
 }
+
+export const _hydrateTenantModelAssociations = (
+  options,
+  redisValue: Record<string, any>,
+  hydratedEntity,
+) => {
+  redisValue.settings = redisValue.settings || []
+  hydratedEntity.settings = redisValue.settings.reduce((accumulator, currentValue) => {
+    accumulator.push(options.database.settings.build(currentValue))
+    return accumulator
+  }, [])
+
+  redisValue.conversationSettings = redisValue.conversationSettings || []
+  hydratedEntity.conversationSettings = redisValue.conversationSettings.reduce(
+    (accumulator, currentValue) => {
+      accumulator.push(options.database.conversationSettings.build(currentValue))
+      return accumulator
+    },
+    [],
+  )
+
+  redisValue.users = redisValue.users || []
+  hydratedEntity.users = redisValue.users.reduce((accumulator, currentValue) => {
+    accumulator.push(options.database.tenantUser.build(currentValue))
+    return accumulator
+  }, [])
+
+  return hydratedEntity
+}
+
+export const hydrateTenantWithTenantModelAssociations = (options, redisValue) => {
+  const hydratedTenant = options.database.tenant.build(redisValue)
+  return _hydrateTenantModelAssociations(options, redisValue, hydratedTenant)
+}

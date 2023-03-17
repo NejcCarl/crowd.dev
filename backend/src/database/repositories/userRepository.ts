@@ -8,21 +8,13 @@ import Error404 from '../../errors/Error404'
 import { isUserInTenant } from '../utils/userTenantUtils'
 import { IRepositoryOptions } from './IRepositoryOptions'
 import SequelizeArrayUtils from '../utils/sequelizeArrayUtils'
-import { createRedisClient } from '../../utils/redis'
-import { RedisCache } from '../../utils/redis/redisCache'
+import CacheBust from './cacheBust'
+import { hydrateUserWithUserModelAssociations } from '../models/user'
+import CacheUser from './cacheUser'
 
 const { Op } = Sequelize
 
 export default class UserRepository {
-  static _userCache: RedisCache
-
-  static async getUserCache(): Promise<RedisCache> {
-    if (this._userCache) {
-      return this._userCache
-    }
-    return new RedisCache(`user`, await createRedisClient(true))
-  }
-
   /**
    * Finds the user that owns the given tenant
    * @param tenantId
@@ -140,8 +132,6 @@ export default class UserRepository {
   }
 
   static async updateProfile(id, data, options: IRepositoryOptions) {
-    await this._bustCacheForUser(id)
-
     const currentUser = SequelizeRepository.getCurrentUser(options)
 
     const transaction = SequelizeRepository.getTransaction(options)
@@ -150,7 +140,7 @@ export default class UserRepository {
       transaction,
     })
 
-    await this._bustCacheForUser(user.id)
+    await CacheBust.bustCacheForUserAndAssociatedTenants(user)
     await user.update(
       {
         firstName: data.firstName || null,
@@ -200,7 +190,7 @@ export default class UserRepository {
       data.jwtTokenInvalidBefore = new Date()
     }
 
-    await this._bustCacheForUser(user.id)
+    await CacheBust.bustCacheForUserAndAssociatedTenants(user)
     await user.update(data, { transaction })
 
     await AuditLogRepository.log(
@@ -234,7 +224,7 @@ export default class UserRepository {
     const emailVerificationToken = crypto.randomBytes(20).toString('hex')
     const emailVerificationTokenExpiresAt = Date.now() + 24 * 60 * 60 * 1000
 
-    await this._bustCacheForUser(user.id)
+    await CacheBust.bustCacheForUserAndAssociatedTenants(user)
     await user.update(
       {
         emailVerificationToken,
@@ -274,7 +264,7 @@ export default class UserRepository {
     const passwordResetToken = crypto.randomBytes(20).toString('hex')
     const passwordResetTokenExpiresAt = Date.now() + 24 * 60 * 60 * 1000
 
-    await this._bustCacheForUser(user.id)
+    await CacheBust.bustCacheForUserAndAssociatedTenants(user)
     await user.update(
       {
         passwordResetToken,
@@ -302,8 +292,6 @@ export default class UserRepository {
   }
 
   static async update(id, data, options: IRepositoryOptions) {
-    await this._bustCacheForUser(id)
-
     const currentUser = SequelizeRepository.getCurrentUser(options)
 
     const transaction = SequelizeRepository.getTransaction(options)
@@ -312,7 +300,7 @@ export default class UserRepository {
       transaction,
     })
 
-    await this._bustCacheForUser(id)
+    await CacheBust.bustCacheForUserAndAssociatedTenants(user)
     await user.update(
       {
         firstName: data.firstName || null,
@@ -524,20 +512,21 @@ export default class UserRepository {
   }
 
   static async findById(id, options: IRepositoryOptions) {
-    const userCache = await this.getUserCache()
+    const userCache = await CacheUser.getUserCache()
 
     let rawRedisValue = null
     try {
       rawRedisValue = await userCache.getValue(id)
       if (rawRedisValue) {
         const redisValue = JSON.parse(rawRedisValue)
-        const hydratedUser = await options.database.user.build(redisValue)
-        require('../utils/hydrateModelAssociations').default(
-          options,
-          redisValue,
-          hydratedUser,
-          'user',
-        )
+        const hydratedUser = hydrateUserWithUserModelAssociations(options, redisValue)
+        // const hydratedUser = await options.database.user.build(redisValue)
+        // require('../utils/hydrateModelAssociations').default(
+        //   options,
+        //   redisValue,
+        //   hydratedUser,
+        //   'user',
+        // )
         return hydratedUser
       }
     } catch (error) {
@@ -633,7 +622,7 @@ export default class UserRepository {
       transaction,
     })
 
-    await this._bustCacheForUser(user.id)
+    await CacheBust.bustCacheForUserAndAssociatedTenants(user)
     await user.update(
       {
         emailVerified: true,
@@ -775,11 +764,6 @@ export default class UserRepository {
     })
 
     return records.map((record) => record.id)
-  }
-
-  static async _bustCacheForUser(id): Promise<void> {
-    const userCache = await this.getUserCache()
-    await userCache.delete(id)
   }
 
   static async _populateRelationsForRows(rows, options: IRepositoryOptions) {
